@@ -3,7 +3,7 @@
     <a href="https://eclean.gg" target="_blank">
         <img src="https://user-images.githubusercontent.com/56734956/180666362-547b6d1a-1874-4d5b-a237-d9cc3b57d667.png" alt="Banner">
     </a>
-    <br><br>
+    <br>
     <h3>eclean.gg</h3>
     <!-- Website link -->
     <a href="https://eclean.gg" target="_blank"><strong>Visit website »</strong></a>
@@ -17,8 +17,6 @@
     ·
     <a href="https://blog.eclean.gg" target="_blank">Blog</a>
 </div>
-
-<br>
 
 <!-- About the repository -->
 # Nice meeting you here!
