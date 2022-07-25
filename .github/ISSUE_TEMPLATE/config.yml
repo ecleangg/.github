@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Suggestions
+    url: https://feedback.eclean.gg
+    about: Submit feature requests via our feedback portal.
+  - name: Discord
+    url: https://discord.eclean.gg
+    about: Ask for help from our community via Discord.
