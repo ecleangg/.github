@@ -24,11 +24,11 @@ body:
     label: "Reproduction steps"
     description: "Please be as detailed as possible when providing steps to reproduce, failure to provide steps will result in this issue being closed."
 
-  - type: textarea
-    attributes:
-      label: "Relevant logs"
-      description: Please submit any relevant logs. This will be automatically formatted into code—no need for backticks.
-      render: shell
+- type: textarea
+  attributes:
+    label: "Relevant logs"
+    description: Please submit any relevant logs. This will be automatically formatted into code—no need for backticks.
+    render: shell
 
 - type: checkboxes
   attributes:
@@ -38,5 +38,5 @@ body:
       required: true
     - label: I have provided all relevant details to begin troubleshooting of this issue.
       required: true
-    - label: I have asked in the Discord support or contacted support to confirm what I am expericing isn't only a problem on my system.
+    - label: I have asked in the Discord support or contacted support to confirm what I am expericing isn't only a problem on my end.
       required: true
