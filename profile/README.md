@@ -1,7 +1,7 @@
 <!-- Landing -->
 <div align="center">
     <a href="https://eclean.gg" target="_blank">
-        <img src="../.github/README.png" alt="Banner">
+        <img src="https://raw.githubusercontent.com/ecleangg/.github/main/.github/README.png" alt="Banner">
     </a>
     <br>
     <h3>eclean.gg</h3>
