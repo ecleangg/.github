@@ -1,21 +1,17 @@
-# Contributing
+# 🤝 Contributing
 
-Contributions are what helps products open up to the community surrounding it. It also brings an amazing place to learn, inspire, and build. Any contributions you make are greatly appreciated.
+Contributions are what make it possible for people in the community to use a product. It's also a great place to learn, get ideas, and build. We really appreciate anything you do to help.
 
-When contributing, please discuss the changes you wish to make via issue, email, or any other method before making a change. Pull requests are always welcome as long as they are well-documented of what you're trying to achieve.
+Before making a change, please talk about what you want to change in an issue, an email, or some other way. Pull requests are always welcome, as long as they are clear about what you want to do.
 
-## Disclaimer
+## ⚠️ Disclaimer
 
-The instructions found in this contribution guide apply to any [eclean.gg](https://eclean.gg) products or services in which you may want to contribute to.
+The instructions in this contribution guide apply to any products or services on [eclean.gg](https://eclean.gg) to which you may contribute.
 
-## Responsibility with security
+## ⚖️ Responsibility with security
 
-We kindly ask that you be considerate of others who are using the software and not publicly disclose security issues without contacting us first by email.
+Please be considerate of other users of the repository and do not disclose security issues publicly without first contacting us via email.
 
-If you contact us by email and we fail to respond to you within a week you are welcome to publicly disclose whatever issue you have found. We understand how frustrating it is when you find something big and no one will respond to you. This holds us to a standard of providing prompt attention to any issues that arise and keeping this community safe.
+If you contact us via email and we do not respond within a week, you are free to disclose whatever issue you have discovered publicly. We understand how frustrating it can be when you discover something significant and no one responds. This holds us accountable for promptly addressing any issues that arise and maintaining the safety of this community.
 
-Please reach out directly to ``hello@eclean.gg`` when reporting any security vulnerability with our products or services.
-
-### Contact us
-
-You can find us in a couple places online. First and foremost, we're active right here on Github. If you encounter a bug or other problems, send us an email at ``hello@eclean.gg`` for us to take a look at it.
+**Please contact ``hello(at)eclean.gg`` directly to report any security issues with the repository in question.**

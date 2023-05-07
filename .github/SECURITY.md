@@ -1,15 +1,15 @@
-# Security Policy
+# ⚖️ Security Policy
 
-To respect the safety of our customers during potential vulnerabilities within one of our products, we ask you to kindly read through this security policy to understand how to report any security vulnerability you've discovered to us correctly.
+To ensure the safety of our customers during any potential vulnerabilities in one of our products or services, we kindly request that you review this security policy to learn how to report any security flaws you discover to us.
 
-## Disclaimer
+## ⚠️ Disclaimer
 
-The instructions found in this security policy apply to any [eclean.gg](https://eclean.gg) products or services in which you may discover security vulnerabilities.
+This security policy applies to all products and services offered by [eclean.gg](https://eclean.gg) that may contain security vulnerabilities.
 
-## Reporting a Vulnerability
+## 📡 Reporting a Vulnerability
 
-Please reach out directly to ``hello@eclean.gg`` when reporting any security vulnerability with our products or services.
+**Please contact ``hello(at)eclean.gg`` directly to report any security issues with our products or services.**
 
-We make every effort to respond as soon as possible, although it may take a day or two to sync internally and determine the severity of the report and its impact. Please, do not use a public-facing channel or GitHub issues to report sensitive security issues.
+We make every effort to respond as quickly as possible, but it may take up to two days to synchronize internally and determine the severity and impact of the report. <u>Please do not report sensitive security issues via public channels or GitHub issues.</u>
 
-As part of the process, we will create a security advisory for the affected versions and disclose it publicly, usually two to four weeks after releasing a version that addresses it.
+As part of the process, we will generate a security advisory for the affected versions and make it public, typically two to four weeks after the release of a version that addresses the vulnerability.
