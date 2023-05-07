@@ -83,13 +83,13 @@ A short piece of writing about the repository and how it can help the reader. Ev
 
 ## 🚀 Environment variables
 
--   `YOUR_VARIABLE` — A short description for the variable
+* `YOUR_VARIABLE` — A short description for the variable
 
 <!-- Config options (OPTIONAL) -->
 
 ## 🧾 Configuration options
 
--   `CONFIG_OPTION` — A short description for the config option
+* `CONFIG_OPTION` — A short description for the config option
 
 <!-- Acknowledgements (IMPORTANT but OPTIONAL) -->
 
