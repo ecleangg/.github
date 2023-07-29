@@ -32,9 +32,9 @@ Remember that a README should be short and sweet, but it should also tell the en
     <!-- External links -->
     <a href="https://feedback.eclean.gg" target="_blank">Feedback</a>
     ·
-    <a href="https://wiki.eclean.gg" target="_blank">Public wiki</a>
+    <a href="https://docs.eclean.gg/" target="_blank">Public wiki</a>
     ·
-    <a href="https://blog.eclean.gg" target="_blank">Public blog</a>
+    <a href="https://eclean.gg/blog/" target="_blank">Public blog</a>
 </div>
 
 <br>
@@ -42,7 +42,7 @@ Remember that a README should be short and sweet, but it should also tell the en
 <!-- Badges -->
 <div align="center">
     <!-- Discord -->
-    <a href="https://discord.eclean.gg"><img src="https://img.shields.io/badge/Discord-discord.eclean.gg-%235865F2?style=flat-square&logo=discord" alt="Join eclean.gg Discord"></a>
+    <a href="https://eclean.gg/discord"><img src="https://img.shields.io/badge/Discord-discord.eclean.gg-%235865F2?style=flat-square&logo=discord" alt="Join eclean.gg Discord"></a>
     <!-- Contributor Covenant -->
     <a href="https://contributor-covenant.org/version/2/1/code-of-conduct/ "><img src="https://img.shields.io/badge/Contributor%20Covenant-2.1-purple?style=flat-square"></a>
     <!-- Stars -->
