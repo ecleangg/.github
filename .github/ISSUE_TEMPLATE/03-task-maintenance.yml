@@ -1,0 +1,121 @@
+name: 🔧 Task, maintenance & research
+description: Internal task, maintenance, research, or technical debt item
+title: "[TASK] "
+type: Chore
+labels: ["Chore", "Need investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Who should use this template:**
+        - Team members and maintainers.
+        - Contributors working on internal improvements.
+        - Anyone tracking development, maintenance, or research tasks.
+
+        ---
+
+  - type: dropdown
+    id: task-type
+    attributes:
+      label: Task type
+      description: What type of task is this?
+      options:
+        - Refactoring
+        - Technical debt
+        - Code cleanup
+        - Dependency update
+        - Infrastructure
+        - CI/CD improvement
+        - Testing improvement
+        - Monitoring/Logging
+        - Security update
+        - Maintenance
+        - Research/Investigation
+        - Technology evaluation
+        - Performance analysis
+        - Proof of concept
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this task?
+      options:
+        - Low — can be done when time permits
+        - Medium — should be done in next sprint
+        - High — should be done soon
+        - Critical — needs immediate attention
+    validations:
+      required: true
+
+  - type: textarea
+    id: task-description
+    attributes:
+      label: Task description
+      description: Describe what needs to be done.
+      placeholder: "We need to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this task necessary? What problem does it solve?
+      placeholder: "This task is needed because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: What defines this task as complete?
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+        - [ ] Criterion 3
+
+  - type: textarea
+    id: implementation-notes
+    attributes:
+      label: Implementation notes
+      description: Technical details, affected areas, dependencies, and approaches to consider.
+      placeholder: |
+        **Technical approach:**
+        Consider using X approach because...
+
+        **Affected areas:**
+        - Frontend components
+        - Backend API
+        - Database
+
+        **Dependencies:**
+        This task depends on...
+
+  - type: textarea
+    id: risks-considerations
+    attributes:
+      label: Risks & considerations
+      description: Any risks, breaking changes, or important considerations for this task?
+      placeholder: |
+        **Risks:**
+        - Be careful of X because...
+
+        **Breaking changes:**
+        - This task may introduce breaking changes
+        - Database migrations required
+        - Configuration changes needed
+
+  - type: textarea
+    id: testing-strategy
+    attributes:
+      label: Testing strategy
+      description: How should this task be tested?
+      placeholder: |
+        - Unit tests for...
+        - Integration tests for...
+        - Manual testing of...

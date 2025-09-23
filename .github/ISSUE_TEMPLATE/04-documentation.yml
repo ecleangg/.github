@@ -1,0 +1,92 @@
+name: 📚 Documentation issue
+description: Report an issue with documentation or suggest improvements
+title: "[DOCS] "
+type: Documentation
+labels: ["Documentation", "Need investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **When to use this template:**
+        - You found incorrect, outdated, or misleading information in the docs.
+        - Documentation is missing for a feature or concept.
+        - You discovered broken links or formatting issues.
+        - Content is confusing, unclear, or hard to understand.
+        - Examples are missing or don't work as expected.
+        - You found typos, grammar errors, or translation issues.
+
+        ---
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight checklist
+      description: By submitting this issue, you agree to follow our guidelines.
+      options:
+        - label: I've searched existing issues to ensure this documentation issue hasn't been reported before.
+          required: true
+        - label: I've checked the latest version of the documentation.
+          required: true
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Documentation type
+      description: What type of documentation issue is this?
+      options:
+        - Missing documentation
+        - Incorrect/outdated information
+        - Unclear/confusing content
+        - Typo or grammar error
+        - Broken links
+        - Missing examples
+        - Formatting issues
+        - Translation issues
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: doc-location
+    attributes:
+      label: Documentation location
+      description: URL or path to the documentation page.
+      placeholder: "https://docs.example.com/page OR docs/guide.md"
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue-description
+    attributes:
+      label: Issue description
+      description: Describe the documentation issue in detail.
+      placeholder: "The documentation states X, but it should state Y because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-expected-content
+    attributes:
+      label: Current vs expected content
+      description: What does the documentation currently say vs what it should say?
+      placeholder: |
+        **Current content:**
+        Currently, the documentation says...
+
+        **Expected content:**
+        The documentation should explain...
+
+        **Suggested improvement:**
+        I suggest adding/changing/removing...
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Target audience
+      description: Who is the primary audience for this documentation?
+      options:
+        - Beginners/New users
+        - Intermediate users
+        - Advanced users/Developers
+        - All users
+        - Internal team only

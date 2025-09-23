@@ -1,0 +1,166 @@
+name: 🚨 Incident report
+description: Report a production incident or outage
+title: "[INCIDENT] "
+type: Infrastructure
+labels: ["Need help", "Need investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **⚠️ If this is a critical incident:**
+        1. **First**, contact the on-call team immediately through our incident response channels.
+        2. **Then**, fill out this report to track the incident.
+        3. **Remember**, speed of response is critical - don't delay emergency response to fill out forms.
+
+        **When to use this template:**
+        - Services are down or completely unavailable.
+        - User data has been lost or corrupted.
+        - Unauthorized access, data leaks, or security vulnerabilities being exploited.
+        - Core features are completely non-functional for all users.
+        - Severe performance issues affecting all or most users.
+
+        ---
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Incident severity
+      description: How severe is this incident?
+      options:
+        - Critical — complete outage, data loss, security breach
+        - High — major functionality impacted, significant user impact
+        - Medium — minor functionality impacted, some users affected
+        - Low — minimal impact, edge cases
+    validations:
+      required: true
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: Incident status
+      description: What's the current status of this incident?
+      options:
+        - Investigating — issue identified, investigation in progress
+        - Identified — root cause identified, working on fix
+        - Monitoring — fix deployed, monitoring for resolution
+        - Resolved — issue resolved and confirmed
+    validations:
+      required: true
+
+  - type: input
+    id: start-time
+    attributes:
+      label: Incident start time
+      description: When did this incident start? (include timezone)
+      placeholder: "2024-01-15 14:30 UTC"
+    validations:
+      required: true
+
+  - type: textarea
+    id: incident-description
+    attributes:
+      label: Incident description
+      description: Describe what is happening.
+      placeholder: "Users are experiencing..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-impact
+    attributes:
+      label: User impact
+      description: How are users affected? How many users?
+      placeholder: |
+        - Affected users: X% of user base
+        - Specific impact: Unable to...
+        - Affected regions/services:
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptoms
+    attributes:
+      label: Symptoms observed
+      description: What symptoms or errors are you seeing?
+      placeholder: |
+        - Error messages: "..."
+        - Performance metrics: Response time increased to X
+        - User reports: Users reporting...
+
+  - type: textarea
+    id: affected-services
+    attributes:
+      label: Affected services/components
+      description: Which services or components are impacted?
+      placeholder: |
+        - Service A: Down/Degraded
+        - Service B: Partially affected
+        - Database: Connection issues
+
+  - type: textarea
+    id: investigation-mitigation
+    attributes:
+      label: Investigation & mitigation steps
+      description: What steps have been taken to investigate and mitigate this incident?
+      placeholder: |
+        **Investigation:**
+        1. Checked monitoring dashboards
+        2. Reviewed recent deployments
+        3. Examined error logs
+
+        **Mitigation actions:**
+        - Rolled back deployment X
+        - Scaled up service Y
+        - Applied hotfix Z
+    validations:
+      required: true
+
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root cause
+      description: If known, what caused this incident?
+      placeholder: "The incident was caused by..."
+
+  - type: textarea
+    id: resolution-steps
+    attributes:
+      label: Resolution steps
+      description: What steps are being taken to resolve this incident?
+      placeholder: |
+        1. Deploy fix for...
+        2. Restart service...
+        3. Verify functionality...
+
+  - type: checkboxes
+    id: communication
+    attributes:
+      label: Communication status
+      description: Have relevant parties been notified?
+      options:
+        - label: On-call team notified
+        - label: Status page updated
+        - label: Customer communication sent
+        - label: Internal stakeholders notified
+        - label: External dependencies contacted (if applicable)
+
+  - type: textarea
+    id: monitoring-links
+    attributes:
+      label: Monitoring & logs
+      description: Links to relevant monitoring dashboards, logs, or metrics.
+      placeholder: |
+        - Dashboard: https://...
+        - Logs: https://...
+        - Metrics: https://...
+
+  - type: textarea
+    id: next-steps
+    attributes:
+      label: Next steps
+      description: What are the immediate next steps?
+      placeholder: |
+        1. Continue monitoring...
+        2. Prepare post-incident review
+        3. Implement additional monitoring
+        4. ...

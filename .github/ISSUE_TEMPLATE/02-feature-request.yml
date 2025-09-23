@@ -1,0 +1,99 @@
+name: ✨ Feature request
+description: Suggest a new feature or enhancement
+title: "[FEATURE] "
+type: Feature Request
+labels: ["Enhancement", "Need investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **When to use this template:**
+        - You want to propose a new feature or capability.
+        - You have ideas to improve existing features.
+        - You need functionality that doesn't currently exist.
+        - You want to suggest performance or usability improvements.
+
+        **Before you start:**
+        - Consider if this aligns with the project's goals and scope.
+        - Think about how this would benefit other users, not just your specific use case.
+
+        ---
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight checklist
+      description: By submitting this issue, you agree to follow our guidelines.
+      options:
+        - label: I've searched existing issues to ensure this feature hasn't been requested before.
+          required: true
+        - label: I've read the documentation and this feature is not already available.
+          required: true
+
+  - type: dropdown
+    id: feature-type
+    attributes:
+      label: Feature type
+      description: What type of feature is this?
+      options:
+        - New functionality
+        - Enhancement to existing feature
+        - Performance improvement
+        - Developer experience improvement
+        - Documentation improvement
+        - API change/addition
+        - UI/UX improvement
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem-description
+    attributes:
+      label: Problem description
+      description: Is your feature request related to a problem? Please describe the problem you're trying to solve.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution-description
+    attributes:
+      label: Proposed solution
+      description: Describe the solution you'd like to see implemented.
+      placeholder: "I'd like to see..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any alternative solutions or features you've considered.
+      placeholder: "I've also considered..."
+
+  - type: textarea
+    id: use-cases-examples
+    attributes:
+      label: Use cases & examples
+      description: Describe specific use cases where this feature would be beneficial, and provide examples or mockups if available.
+      placeholder: |
+        **Use cases:**
+        1. As a [user type], I want to [action] so that [benefit]
+        2. When [scenario], I need to [action] because [reason]
+
+        **Examples/Mockups:**
+        Drag and drop images here OR provide links to examples
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - Low — nice to have
+        - Medium — would be useful
+        - High — important for workflow
+        - Critical — blocking current work
+    validations:
+      required: true

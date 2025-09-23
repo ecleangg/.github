@@ -1,0 +1,300 @@
+name: 🗳️ RFC (Request for Comments)
+description: Propose significant changes or decisions that need consensus
+title: "[RFC] "
+type: Research
+labels: ["Question/discussion", "Need investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        RFCs are for proposing significant changes that affect the project's direction, architecture, or community.
+
+        **Before submitting**, consider if this could be handled as a regular feature request or bug report instead.
+
+        **When to use this template:**
+        - New major features or significant API changes.
+        - Breaking changes or deprecations.
+        - Architectural decisions or design patterns.
+        - Process changes or governance updates.
+        - Cross-project initiatives.
+
+        **What happens after submitting?**
+        1. **Triage**: Maintainers will review and assign an RFC number.
+        2. **Discussion**: The relevant parties will discuss and provide feedback on the proposal.
+        3. **Iteration**: You may need to update the proposal based on feedback.
+        4. **Decision**: Core maintainers will make a final decision.
+        5. **Implementation**: If accepted, work can begin on implementation.
+
+        ---
+
+  - type: input
+    id: rfc_number
+    attributes:
+      label: RFC number
+      description: Leave blank — this will be assigned by maintainers.
+      placeholder: "Will be assigned (e.g., RFC-001)"
+
+  - type: dropdown
+    id: rfc_type
+    attributes:
+      label: RFC type
+      description: What type of change does this RFC propose?
+      options:
+        - Feature addition
+        - API change
+        - Breaking change
+        - Architectural decision
+        - Process change
+        - Deprecation
+        - Cross-project initiative
+        - Governance update
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: title
+    attributes:
+      label: RFC title
+      description: A clear, concise title for your proposal.
+      placeholder: "Add support for XYZ feature"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact_level
+    attributes:
+      label: Impact level
+      description: How significant is this change?
+      options:
+        - Low — minor changes, backward compatible
+        - Medium — some breaking changes, migration required
+        - High — major changes, significant impact on users/contributors
+        - Critical — fundamental changes to project direction
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A brief overview of what you're proposing (2-3 sentences)
+      placeholder: "This RFC proposes..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation & problem statement
+      description: |
+        What problem does this solve? Why is this change needed? What pain points does this address? What use cases does this enable? How does this align with project goals?
+      placeholder: |
+        ## Problem
+        Currently, users experience...
+
+        ## Why this matters
+        This impacts our community because...
+
+        ## Alignment with project goals
+        This supports our mission of...
+    validations:
+      required: true
+
+  - type: textarea
+    id: detailed_design
+    attributes:
+      label: Detailed design & implementation
+      description: Provide a comprehensive description of your proposed solution and how it would be implemented.
+      placeholder: |
+        ## Overview
+        The proposed solution involves...
+
+        ## Technical implementation
+        - Key components: ...
+        - API changes: ...
+        - Data structures: ...
+
+        ## Implementation phases
+        1. Phase 1: Foundation (Week 1-2)
+        2. Phase 2: Core implementation (Week 3-4)
+        3. Phase 3: Integration & testing (Week 5-6)
+
+        ## User experience
+        Users will interact with this by...
+
+        ## Code examples
+        ```javascript
+        // Example usage
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider? Why did you choose this approach over others? This helps reviewers understand your reasoning.
+      placeholder: |
+        ## Alternative 1: [Name]
+        - Description: ...
+        - Pros: ...
+        - Cons: ...
+        - Why rejected: ...
+
+        ## Alternative 2: [Name]
+        - Description: ...
+        - Pros: ...
+        - Cons: ...
+        - Why rejected: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact_analysis
+    attributes:
+      label: Impact analysis
+      description: Analyze the potential impact of this change on different stakeholders.
+      placeholder: |
+        ## User impact
+        - Existing users: ...
+        - New users: ...
+        - Migration required: ...
+
+        ## Developer impact
+        - Contributors: ...
+        - Maintainers: ...
+        - API consumers: ...
+
+        ## Community impact
+        - Documentation changes: ...
+        - Training materials: ...
+        - Support burden: ...
+
+        ## Performance impact
+        - Resource usage: ...
+        - Speed/efficiency: ...
+        - Scalability: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation_plan
+    attributes:
+      label: Implementation plan
+      description: How would this be implemented? Break it down into phases if needed.
+      placeholder: |
+        ## Phase 1: Foundation (Week 1-2)
+        - [ ] Task 1
+        - [ ] Task 2
+
+        ## Phase 2: Core implementation (Week 3-4)
+        - [ ] Task 3
+        - [ ] Task 4
+
+        ## Phase 3: Integration & testing (Week 5-6)
+        - [ ] Task 5
+        - [ ] Task 6
+
+        ## Dependencies
+        - Requires: ...
+        - Blocks: ...
+
+        ## Timeline
+        Estimated completion: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing_documentation
+    attributes:
+      label: Testing & documentation plan
+      description: How will this change be tested and documented?
+      placeholder: |
+        ## Testing strategy
+        - Unit tests: Test coverage areas...
+        - Integration tests: Systems to test...
+        - Manual testing: Testing scenarios...
+
+        ## Documentation plan
+        - [ ] API documentation
+        - [ ] User guides
+        - [ ] Migration guides
+        - [ ] Code examples
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks_mitigations
+    attributes:
+      label: Risks & mitigations
+      description: What could go wrong and how will you address potential issues?
+      placeholder: |
+        ## Key risks
+        - Risk: ...
+          Mitigation: ...
+
+        ## Rollback plan
+        If this doesn't work out: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: Open questions
+      description: What questions need community input or further investigation?
+      placeholder: |
+        1. Should we prioritize X over Y?
+        2. How should we handle edge case Z?
+        3. What's the best approach for backwards compatibility?
+
+  - type: checkboxes
+    id: stakeholder_input
+    attributes:
+      label: Stakeholder input needed
+      description: Who should review and provide input on this RFC?
+      options:
+        - label: Core Maintainers
+        - label: Project Maintainers
+        - label: Community Moderators
+        - label: Security Team
+        - label: Documentation Team
+        - label: Specific domain experts (specify in comments)
+        - label: Community at large
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Any other information that would be helpful for reviewers? Links to related issues, discussions, research, etc.
+      placeholder: |
+        ## Related issues
+        - #123
+        - #456
+
+        ## Research & references
+        - [Link to research]
+        - [Industry standards]
+        - [Similar implementations]
+
+        ## Previous discussions
+        - [Link to community discussion]
+        - [Slack/Discord conversations]
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: RFC checklist
+      description: Confirm you've completed the following before submitting
+      options:
+        - label: I've read the project governance document.
+          required: true
+        - label: I've searched for existing RFCs and issues related to this topic.
+          required: true
+        - label: I've considered the impact on all stakeholder groups.
+          required: true
+        - label: I'm prepared to participate in the discussion and iteration process.
+          required: true
+        - label: I understand this RFC may be rejected, modified, or take time to implement.
+          required: true
