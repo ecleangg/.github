@@ -5,6 +5,7 @@ updates:
     directory: "/"
     labels:
       - "dependencies"
+      - "github-actions"
     schedule:
       interval: "weekly"
     target-branch: "main"
