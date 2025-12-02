@@ -1,8 +1,9 @@
 name: ✨ Feature request
 description: Suggest a new feature or enhancement
 title: "[FEATURE] "
-type: Feature Request
-labels: ["Enhancement", "Need investigation"]
+type: Feature
+labels: ["enhancement", "needs review"]
+projects: ["ecleangg/102", "ecleangg/9"]
 body:
   - type: markdown
     attributes:

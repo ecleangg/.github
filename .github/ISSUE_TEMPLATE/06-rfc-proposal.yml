@@ -2,7 +2,8 @@ name: 🗳️ RFC (Request for Comments)
 description: Propose significant changes or decisions that need consensus
 title: "[RFC] "
 type: Research
-labels: ["Question/discussion", "Need investigation"]
+labels: ["discussion", "needs review"]
+projects: ["ecleangg/7", "ecleangg/12"]
 body:
   - type: markdown
     attributes:

@@ -1,8 +1,9 @@
 name: 🚨 Incident report
 description: Report a production incident or outage
 title: "[INCIDENT] "
-type: Infrastructure
-labels: ["Need help", "Need investigation"]
+type: Problem
+labels: ["priority: high", "needs review"]
+projects: ["ecleangg/11", "ecleangg/9"]
 body:
   - type: markdown
     attributes:

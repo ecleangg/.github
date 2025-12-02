@@ -2,7 +2,8 @@ name: 🐞 Bug report
 description: Report a bug or unexpected behavior
 title: "[BUG] "
 type: Bug
-labels: ["Bug", "Need investigation"]
+labels: ["bug", "needs review"]
+projects: ["ecleangg/8", "ecleangg/9"]
 body:
   - type: markdown
     attributes:

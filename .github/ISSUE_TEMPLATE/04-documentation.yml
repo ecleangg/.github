@@ -2,7 +2,8 @@ name: 📚 Documentation issue
 description: Report an issue with documentation or suggest improvements
 title: "[DOCS] "
 type: Documentation
-labels: ["Documentation", "Need investigation"]
+labels: ["documentation", "needs review"]
+projects: ["ecleangg/10", "ecleangg/9"]
 body:
   - type: markdown
     attributes:

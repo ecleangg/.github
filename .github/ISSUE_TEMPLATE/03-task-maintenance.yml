@@ -1,8 +1,9 @@
 name: 🔧 Task, maintenance & research
 description: Internal task, maintenance, research, or technical debt item
 title: "[TASK] "
-type: Chore
-labels: ["Chore", "Need investigation"]
+type: Maintenance
+labels: ["refactor", "needs review"]
+projects: ["ecleangg/7", "ecleangg/9"]
 body:
   - type: markdown
     attributes:
