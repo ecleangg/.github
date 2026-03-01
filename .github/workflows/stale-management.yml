@@ -8,7 +8,7 @@ on:
 jobs:
   stale:
     name: Mark and close stale issues and PRs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     permissions:
       actions: write
       issues: write
@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Handle stale issues and PRs
-        uses: actions/stale@v10.0.0
+        uses: actions/stale@v10.2.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
