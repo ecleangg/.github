@@ -1,11 +1,27 @@
-<!--
-Thanks for contributing to eclean! Every change is unique, so here's a simple guide to make your PR shine:
+## What changed
 
-1. What & why — Tell us about your changes and why they're needed.
-2. Testing — How did you verify this works? Local testing? New tests? Not applicable?
-3. Breaking changes — Any changes that affect existing behavior? Let us know how to migrate.
-4. Related issues — Link any related issues (e.g., "Fixes #123").
-5. Extra context — Add anything helpful: screenshots, deployment notes, implementation details, etc.
+Say what the change does and why it is needed.
 
-Tip: Help reviewers understand your change so they can merge it with confidence!
--->
+## Verification
+
+How did you check this works? List the commands you ran, tests you added, or manual steps. Write "n/a" if nothing needs checking.
+
+## Breaking changes
+
+Any change to existing behavior, and how to migrate. Write "none" if there is none.
+
+## Related issues
+
+Link issues this closes, for example "Fixes #123".
+
+## Analytics
+
+Skip this section if the PR adds, renames or removes no analytics event.
+
+- What decision does this event inform, and which card shows it?
+- Is the event in `analytics/tracking-plan.yml` (question, decision, card, owner)? Run the repo's sync script and commit the generated files.
+- Does it carry any personal data? A `pii: true` property needs a consent key.
+
+## Notes
+
+Screenshots, deployment notes or anything else that helps review.
