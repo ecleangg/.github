@@ -46,6 +46,16 @@ Please include as much as you can — more detail speeds up fixes.
 
 We ask that reporters avoid public disclosure until we have had a chance to coordinate a fix. In return, we will provide timely acknowledgement and status updates, refrain from pursuing legal action for good‑faith security research, and work with you on disclosure timing — including crediting your contribution when you permit it.
 
+### Out of scope
+
+Safe harbor applies to good-faith research that stays within these limits. Please do not:
+
+- use social engineering against our staff or users, including phishing
+- attack our premises or equipment physically
+- run denial-of-service or volumetric tests
+- test third-party services we use, for example by attacking their infrastructure; report issues in those services to their owners
+- access or modify other people's data beyond what you need to demonstrate the issue, and stop and tell us if you come across such data
+
 ---
 
 _Thanks for helping keep eclean safe. We appreciate reports, clear steps, and people who help us improve security._
