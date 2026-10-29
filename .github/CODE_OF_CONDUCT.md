@@ -29,7 +29,7 @@ Examples of unacceptable behavior include:
 
 ## Reporting
 
-If you experience or witness behavior that violates this Code of Conduct, please report it to the project maintainers at [community@eclean.gg](mailto:community@eclean.gg). If you prefer to remain anonymous, use our anonymous reporting form: https://whistle.eclean.gg/.
+If you experience or witness behavior that violates this Code of Conduct, please report it to the project maintainers at [community@eclean.gg](mailto:community@eclean.gg). If you prefer to remain anonymous, use our anonymous reporting service at [report.eclean.gg](https://report.eclean.gg).
 
 When reporting, please include: what happened, when and where it occurred, and any relevant screenshots or links. We don’t require proof — tell us what you know.
 

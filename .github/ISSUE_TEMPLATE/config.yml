@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
-  - name: GitHub Discussions
-    url: https://github.com/orgs/ecleangg/discussions
-    about: Ask questions and discuss ideas with the community
+  - name: eclean support
+    url: https://eclean.gg/contact
+    about: Product and account help, billing, sales, privacy, legal and press
+  - name: Help center
+    url: https://help.eclean.gg
+    about: Guides and troubleshooting for every module

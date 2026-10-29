@@ -15,6 +15,10 @@ Email [security@eclean.gg](mailto:security@eclean.gg) with details. If the issue
 
 Do not create public issues, pull requests, or otherwise disclose the details publicly before we've had a chance to investigate and coordinate a fix.
 
+To encrypt your report, use our OpenPGP key at [eclean.gg/pgp](https://eclean.gg/pgp). Our [security.txt](https://eclean.gg/.well-known/security.txt) lists the same contact details, and researchers we credit are listed on [eclean.gg/acknowledgements](https://eclean.gg/acknowledgements).
+
+For our public repositories you can also use GitHub's private vulnerability reporting: open the repository's **Security** tab and choose **Report a vulnerability**.
+
 ## How to report and what to include
 
 Please include as much as you can — more detail speeds up fixes.
