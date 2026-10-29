@@ -1,0 +1,49 @@
+name: Trivy image (scheduled)
+
+# Reusable: pulls a published image (ghcr.io with the repo's GITHUB_TOKEN) and lists every HIGH and
+# CRITICAL finding in the job summary. It reports the full backlog and never fails. Call it from a
+# `schedule` workflow; the calling job needs `contents: read` and `packages: read`.
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Image reference to scan, e.g. ghcr.io/ecleangg/api-rs:latest or an @sha256 digest"
+        type: string
+        required: true
+      ignore-file:
+        description: "Path of a .trivyignore in the calling repository; findings listed there are not reported"
+        type: string
+        default: ".trivyignore"
+      runs-on:
+        description: "Runner label"
+        type: string
+        default: ubuntu-slim
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan ${{ inputs.image }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 14
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      # Only the ignore file is needed from the calling repository.
+      - name: Fetch the ignore file
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: ${{ inputs.ignore-file }}
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Scan the image
+        uses: ecleangg/.github/.github/actions/trivy-image@49318d61cf35fa97d63c8eb408c9b82e4ff67864 # main
+        with:
+          image: ${{ inputs.image }}
+          ignore-file: ${{ inputs.ignore-file }}
+          fail: "false"
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
