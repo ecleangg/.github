@@ -338,9 +338,19 @@ jobs:
           check "ignore entry without a reason" "$NO_REASON" "failure"
           exit "$fail"
 
+  image-scheduled:
+    name: Scheduled image scan workflow
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/trivy-image-scheduled.yml
+    with:
+      # A public ghcr image of ours would be better, but none is guaranteed to exist; this is small.
+      image: ghcr.io/trufflesecurity/trufflehog:3.99.7
+
   selftest:
     name: Self-test
-    needs: [parsers, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan]
+    needs: [parsers, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
     if: ${{ always() }}
     runs-on: ubuntu-slim
     timeout-minutes: 2
