@@ -1,57 +1,49 @@
 # Contributing to eclean
 
-Thank you for wanting to contribute! This document focuses only on practical contribution guidelines: how to get set up, report issues, propose changes, and open pull requests.
+This document covers how we work in our repositories: how changes are proposed, reviewed, and merged.
+
+## Who can contribute
+
+Our repositories are worked on by eclean team members and invited collaborators. GitHub Issues and pull requests are limited to them, and private repositories cannot be forked. If you'd like to contribute and aren't on the team, email [community@eclean.gg](mailto:community@eclean.gg) first. To report a bug or suggest an idea without contributing code, see [SUPPORT.md](SUPPORT.md).
 
 ## Quick start
 
-- Fork the repository (external contributors) or create a branch from the main branch (team members).
+- Create a branch from `main`, named for the work, e.g. `feat/auth` or `fix/login-bug`.
 - Follow the repository `README.md` to install dependencies and set up your environment.
-- Create a focused branch for your work, e.g. `feat/auth` or `fix/login-bug`.
+- Keep each branch focused on one change.
 
-## Reporting bugs
+## Issues and planning
 
-When you open an issue for a bug, include:
+Bugs, ideas and tasks are tracked as GitHub Issues in the relevant repository, and the [organization Projects](https://github.com/orgs/ecleangg/projects) collect them across repositories.
 
-- A short, descriptive title.
-- Steps to reproduce.
-- What you expected vs what happened.
-- Environment details (OS, browser, versions) and any relevant logs or error messages.
+Every repository uses the same labels. New issues start as `needs-triage`; `needs-info` waits on the reporter, `ready-for-agent` is fully specified for a coding agent, and `ready-for-human` needs a person.
 
-> [!TIP]
-> Search existing issues before opening a new one — someone may have already reported it.
-
-## Proposing changes or new features
-
-Open an issue first describing:
-
-- The problem you're solving.
-- Your proposed solution and any alternatives considered.
-- Who benefits from the change.
-
-If the maintainers ask you to implement the change, work on a dedicated branch and keep changes focused to the single issue.
+When you open a bug, include a short title, steps to reproduce, what you expected versus what happened, and the environment and any logs. When you propose a change, describe the problem, your proposed solution, and who benefits.
 
 ## Pull request guidelines
 
-- Link the related issue in the PR description (e.g. "Fixes #123").
-- Use a clear title and describe what changed and why.
-- Keep PRs small and focused where possible; large changes may be split into multiple PRs.
-- Run tests and linters locally before opening a PR.
-- Respond to review feedback and update the branch (rebase or merge main to stay current).
+- Link the related issue in the description (e.g. "Fixes #123").
+- Use a clear title and describe what changed and why. We squash-merge, so the PR title and description become the commit message.
+- Keep PRs small and focused; large changes may be split into several.
+- Run the repository's full check before opening a PR (for example `bun run verify`; see the repository `README.md`) and add or update tests for new behavior.
+- Respond to review feedback and keep the branch up to date with `main`.
+- Resolve every conversation before merging.
 
-## Code style & quality
+## Commit and PR titles
 
-- Follow the project's existing code style. If a formatter or linter is configured, run it before committing.
-- Write clear, self-documenting code and add or update tests for new behavior.
-
-### Commit messages
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/). Format commits like:
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 type(scope): short description
 ```
 
 Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
+
+Commits to our public repositories must be signed.
+
+## Dependency updates
+
+[Renovate](https://docs.renovatebot.com/) opens dependency update pull requests. Non-major updates are grouped into one PR per repository and arrive early on Monday mornings; major updates and security fixes get their own PRs. Review them like any other change.
 
 ---
 

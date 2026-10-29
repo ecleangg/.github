@@ -1,92 +1,75 @@
 # Getting support from eclean
 
-Stuck on something? Need a hand? Want to talk about ideas? We've made it as easy as possible to connect with us and find the answers you need.
-
-Whether you're a contributor diving into our public repos or a team member working on internal projects, this will point you in the right direction.
+Stuck on something? This page points you to the right place. Every inbox and channel we run is listed at [eclean.gg/contact](https://eclean.gg/contact).
 
 ## Where to go for what
 
-### 💬 GitHub Discussions — the community hangout
+### 🧭 Product and account help
 
-**Perfect for:** Open-ended conversations, brainstorming, showing off what you built, getting design feedback, or just saying hi to the community.
+**Perfect for:** anything about eclean, your install, your account, or accessibility. When in doubt, start here.
 
-[Join the conversation →](https://github.com/orgs/ecleangg/discussions)
+- **Email:** [hello@eclean.gg](mailto:hello@eclean.gg). We reply within one business day.
+- **Live chat:** available on [eclean.gg/contact](https://eclean.gg/contact) while the team is online.
+- **Help center:** [help.eclean.gg](https://help.eclean.gg) has guides and troubleshooting for every module.
+- **Community forum:** [community.eclean.gg](https://community.eclean.gg) is the place to ask questions, share feedback, and vote on ideas.
+- **Discord:** [discord.gg/eclean](https://discord.gg/eclean) for real-time chat with the community and the team.
+- **Status:** [status.eclean.gg](https://status.eclean.gg) shows whether something is down.
 
-### 🐛 GitHub Issues — when you need specific help
+### 📬 The right inbox
 
-**Perfect for:** Specific problems, clear questions, bug reports, feature requests, or anything that needs tracking and follow-up.
+Every address is read by the team it belongs to. Pick the wrong one and we forward it.
 
-[Browse all templates →](https://github.com/ecleangg/.github/issues/new/choose)
+- **Billing:** [billing@eclean.gg](mailto:billing@eclean.gg) for charges, receipts, invoices, refunds, and subscription changes.
+- **Sales:** [b2b@eclean.gg](mailto:b2b@eclean.gg) for volume licensing, resellers, and B2B inquiries.
+- **Partnerships:** [partners@eclean.gg](mailto:partners@eclean.gg) for collaborations and integrations.
+- **Trust and safety:** [safety@eclean.gg](mailto:safety@eclean.gg) for misuse, harmful behavior, and account appeals.
+- **Privacy:** [privacy@eclean.gg](mailto:privacy@eclean.gg) for data requests, deletions, and questions about what we collect.
+- **Legal:** [legal@eclean.gg](mailto:legal@eclean.gg) for formal notices, intellectual property claims, and law-enforcement requests.
+- **Press:** [press@eclean.gg](mailto:press@eclean.gg) for interviews and media questions.
+- **Community and project governance:** [community@eclean.gg](mailto:community@eclean.gg).
+- **Security:** see our [Security Policy](SECURITY.md).
 
-### 📧 Direct contact — for traditional support
+### 🔒 Confidential concerns
 
-- **Customer & product support:** [hey@eclean.gg](mailto:hey@eclean.gg)
-- **Community questions:** [community@eclean.gg](mailto:community@eclean.gg)
-- **Legal or CLA questions:** [legal@eclean.gg](mailto:legal@eclean.gg)
-- **Security issues:** See our [Security Policy](SECURITY.md)
+Corruption, misconduct, or compliance concerns can be reported confidentially, and anonymously if you prefer, at [report.eclean.gg](https://report.eclean.gg). It is open to customers and eclean employees alike.
+
+### 🐞 Bugs and feature requests
+
+Our repositories are not open to public issues or pull requests: GitHub Issues are for the eclean team and invited collaborators. If you found a bug or have an idea, send it to [hello@eclean.gg](mailto:hello@eclean.gg) or post it on the [community forum](https://community.eclean.gg), and we'll track it from there.
 
 > [!IMPORTANT]
-> We're humans too, so we might take a day or two to respond — but we'll get back to you!
-
-## Help yourself first
-
-Before reaching out, these resources might already have what you're looking for:
-
-### 📚 Diving into documentation
-
-- **Repository README files** — Each project has setup instructions, usage examples, and common gotchas.
-- **Wiki pages** — For deep-dive technical docs and architectural decisions.
-- **API documentation** — If we have it, it's probably linked from the README.
-- **Code examples** — Look for `examples/` or `demos/` folders in repositories.
-
-### 🔎 Search like a detective
-
-- **GitHub search** — Search issues and discussions across all our repositories. Someone might've asked your question!
-- **Pull request descriptions** — Sometimes, the best explanations are in PR descriptions and review comments.
-
-> [!TIP]
-> Search for error messages in quotes — like "TypeError: Cannot read property" — to find exact matches.
+> We're humans too. We aim to reply within one business day.
 
 ## How to get better help faster
 
 ### 📝 Making questions easy to answer
 
-- **Give us context:** What you're trying to achieve, what you tried, what happened vs. expected, and your environment (OS, versions, browser, etc.).
-- **Share relevant details:** Full error messages, formatted code snippets, and screenshots or recordings that illustrate the problem.
-- **Keep it focused:** One question per issue, a specific title, and a clear, concise description.
+- **Give us context:** what you're trying to achieve, what you tried, what happened versus what you expected, and your environment (OS, app version, browser).
+- **Share relevant details:** full error messages and screenshots or recordings that show the problem.
+- **Keep it focused:** one question per message, with a specific subject line.
 
 ### 👍 What makes us happy
 
 #### Good examples
 
-- "The documentation says to do A, but I'm getting B instead. Am I missing something?"
+- "The help article says to do A, but I'm getting B instead. Am I missing something?"
 - "I found what looks like a bug in the email validation. Here's how to reproduce it..."
 
-#### Not so helpful — what to avoid (and what to do instead)
+#### Not so helpful, and what to do instead
 
 - "It doesn't work"  
-   **Instead**: say what you tried, what you expected, and what actually happened (with errors/logs/screenshots).
+   **Instead**: say what you tried, what you expected, and what actually happened (with errors or screenshots).
 
 - "Your software is broken"  
    **Instead**: describe the feature, the exact steps to reproduce, and why you believe it's a bug.
 
 - "This is urgent!!!" (without explaining why)  
-   **Instead**: explain the impact, deadline, and any workarounds tried so responders can prioritize.
+   **Instead**: explain the impact, any deadline, and any workaround you tried so we can prioritize.
 
 ## Community support
 
-### 🤝 Help others, help yourself
-
-When you answer questions, even if you're not an expert, sharing your experience helps others who might be facing similar challenges.
-
-If you find documentation that's confusing or unclear, don't struggle through it — fix it or let us know how to improve. When you solve a tricky problem, take a moment to share how you did it, because your solution might save the next person hours of debugging.
-
-**Remember when you were new to all of this?** Pay it forward by welcoming newcomers and helping them find their footing in our community.
-
-### 🌟 Become a community hero
-
-Regular contributors often become unofficial community helpers, and that's awesome! If you're interested in taking on a more formal mentoring or support role, reach out to [community@eclean.gg](mailto:community@eclean.gg).
+When you answer questions on the forum or on Discord, even if you're not an expert, sharing your experience helps the next person. If you'd like to take on a more formal mentoring or support role, reach out to [community@eclean.gg](mailto:community@eclean.gg).
 
 ---
 
-_If you've read this far and still can't find what you need, email [community@eclean.gg](mailto:community@eclean.gg)._
+_If you've read this far and still can't find what you need, email [hello@eclean.gg](mailto:hello@eclean.gg)._
