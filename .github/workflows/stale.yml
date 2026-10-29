@@ -12,6 +12,7 @@ jobs:
   stale:
     name: Mark and close stale issues and PRs
     runs-on: ubuntu-slim
+    timeout-minutes: 10
     permissions:
       actions: write
       issues: write

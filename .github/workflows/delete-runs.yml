@@ -11,6 +11,7 @@ jobs:
   delete-runs:
     name: Delete old Action runs
     runs-on: ubuntu-slim
+    timeout-minutes: 10
     permissions:
       actions: write
       contents: read
