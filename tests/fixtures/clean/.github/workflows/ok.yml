@@ -1,0 +1,8 @@
+name: ok
+on: push
+permissions: {}
+jobs:
+  hello:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo hello

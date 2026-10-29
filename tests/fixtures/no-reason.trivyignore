@@ -1,0 +1,3 @@
+# Fixture for the self-test: the entry after the blank line has no reason, so the action must reject it.
+
+CVE-2000-0001

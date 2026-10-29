@@ -1,0 +1,355 @@
+name: Self-test
+
+# Proves the shared workflows and actions on this repo and on fixtures under tests/fixtures:
+#   clean/    must pass every check
+#   planted/  holds one deliberate problem per check (a HIGH advisory, an Opengrep ERROR, a HIGH
+#             Dockerfile misconfiguration, a workflow with an actionlint error and a zizmor high
+#             finding); each check must detect it
+# A reusable workflow call cannot be asserted to fail from inside the run, so the planted jobs run
+# in report-only mode and the assertion job checks their blocking counts. Run this workflow by hand
+# with `enforce` to see the same jobs fail with blocking turned on.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      enforce:
+        description: "Run the planted fixtures with blocking on; those jobs are then expected to fail"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  parsers:
+    name: Coverage parser unit tests
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: node --test .github/actions/coverage-summary/parsers.test.js
+
+  security-self:
+    name: Security on this repo
+    permissions:
+      contents: read
+    uses: ./.github/workflows/security.yml
+    with:
+      workflows: true
+      secrets: true
+      osv: true
+      opengrep: true
+      trivy-config: true
+      exclude: tests/fixtures
+      concurrency-key: self
+
+  security-clean:
+    name: Security on clean fixtures
+    permissions:
+      contents: read
+    uses: ./.github/workflows/security.yml
+    with:
+      workflows: true
+      secrets: false
+      osv: true
+      opengrep: true
+      trivy-config: true
+      path: tests/fixtures/clean
+      baseline: false
+      concurrency-key: clean
+
+  security-planted:
+    name: Security on planted fixtures
+    permissions:
+      contents: read
+    uses: ./.github/workflows/security.yml
+    with:
+      workflows: true
+      secrets: false
+      osv: true
+      opengrep: true
+      trivy-config: true
+      path: tests/fixtures/planted
+      baseline: false
+      report-only: ${{ inputs.enforce != true }}
+      concurrency-key: planted
+
+  assert-planted:
+    name: Planted fixtures are detected
+    needs: security-planted
+    if: ${{ !cancelled() && inputs.enforce != true }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    env:
+      WORKFLOWS: ${{ needs.security-planted.outputs.workflows-blocking }}
+      OSV: ${{ needs.security-planted.outputs.osv-blocking }}
+      OPENGREP: ${{ needs.security-planted.outputs.opengrep-blocking }}
+      TRIVY_CONFIG: ${{ needs.security-planted.outputs.trivy-config-blocking }}
+      RESULT: ${{ needs.security-planted.result }}
+    steps:
+      - run: |
+          echo "planted job result: $RESULT"
+          status=0
+          for pair in "workflows=$WORKFLOWS" "osv=$OSV" "opengrep=$OPENGREP" "trivy-config=$TRIVY_CONFIG"; do
+            name="${pair%%=*}"; count="${pair#*=}"
+            if [ "${count:-0}" -ge 1 ]; then
+              echo "ok: $name found $count blocking finding(s)"
+            else
+              echo "::error::$name did not detect the planted issue (blocking='${count}')"
+              status=1
+            fi
+          done
+          exit "$status"
+
+  coverage:
+    name: Coverage summary action
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read # the baseline lookup on pull requests
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: lcov
+        id: lcov
+        uses: ./.github/actions/coverage-summary
+        with:
+          name: selftest-lcov
+          format: lcov
+          file: tests/fixtures/coverage/sample.lcov
+          comment: "false"
+
+      - name: go
+        id: go
+        uses: ./.github/actions/coverage-summary
+        with:
+          name: selftest-go
+          format: go
+          file: tests/fixtures/coverage/cover.out
+          comment: "false"
+
+      - name: vitest-json
+        id: vitest
+        uses: ./.github/actions/coverage-summary
+        with:
+          name: selftest-vitest
+          format: vitest-json
+          file: tests/fixtures/coverage/coverage-summary.json
+          comment: "false"
+
+      - name: A broken file is reported, and fails only with fail-on-error
+        id: broken-soft
+        uses: ./.github/actions/coverage-summary
+        with:
+          name: selftest-broken
+          format: go
+          file: tests/fixtures/coverage/sample.lcov
+          comment: "false"
+
+      - name: A broken file with fail-on-error
+        id: broken-hard
+        continue-on-error: true
+        uses: ./.github/actions/coverage-summary
+        with:
+          name: selftest-broken
+          format: go
+          file: tests/fixtures/coverage/sample.lcov
+          fail-on-error: "true"
+          comment: "false"
+
+      - name: Assert
+        env:
+          LCOV_LINES: ${{ steps.lcov.outputs.line-percent }}
+          LCOV_BRANCHES: ${{ steps.lcov.outputs.branch-percent }}
+          LCOV_REPORT: ${{ steps.lcov.outputs.report-file }}
+          GO_LINES: ${{ steps.go.outputs.line-percent }}
+          VITEST_LINES: ${{ steps.vitest.outputs.line-percent }}
+          VITEST_BRANCHES: ${{ steps.vitest.outputs.branch-percent }}
+          SOFT_LINES: ${{ steps.broken-soft.outputs.line-percent }}
+          HARD_OUTCOME: ${{ steps.broken-hard.outcome }}
+        run: |
+          fail=0
+          check() { if [ "$2" = "$3" ]; then echo "ok: $1 = $2"; else echo "::error::$1: expected '$3', got '$2'"; fail=1; fi; }
+          check "lcov line %" "$LCOV_LINES" "50.00"
+          check "lcov branch %" "$LCOV_BRANCHES" "50.00"
+          check "go statement %" "$GO_LINES" "87.50"
+          check "vitest line %" "$VITEST_LINES" "80.00"
+          check "vitest branch %" "$VITEST_BRANCHES" "50.00"
+          check "broken file without fail-on-error yields no number" "$SOFT_LINES" ""
+          check "broken file with fail-on-error fails" "$HARD_OUTCOME" "failure"
+          grep -q '^### Coverage: selftest-lcov' "$LCOV_REPORT" || { echo "::error::report header missing"; fail=1; }
+          grep -q 'No baseline' "$LCOV_REPORT" && echo "ok: no baseline is reported, not an error" || echo "note: a baseline exists for selftest-lcov"
+          exit "$fail"
+
+  sbom:
+    name: SBOM action
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Catalog the clean fixture
+        uses: ./.github/actions/sbom
+        with:
+          path: tests/fixtures/clean
+          output-file: sbom.cdx.json
+          artifact-name: sbom-selftest
+      - name: Assert
+        run: |
+          node -e '
+            const j = JSON.parse(require("fs").readFileSync("sbom.cdx.json", "utf8"));
+            const names = (j.components || []).map((c) => c.name);
+            if (j.bomFormat !== "CycloneDX") throw new Error("not CycloneDX: " + j.bomFormat);
+            if (!names.includes("lodash")) throw new Error("lodash missing from " + names.join(","));
+            console.log("ok: CycloneDX with", names.length, "components");
+          '
+
+  image-build:
+    name: Build image tarballs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Built from scratch with generated content: nothing that looks like a key is committed.
+      - name: Build
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/images"
+          mkdir -p "$out" "$RUNNER_TEMP/ctx-clean/app" "$RUNNER_TEMP/ctx-planted/app/node_modules/lodash"
+          echo hello > "$RUNNER_TEMP/ctx-clean/app/hello.txt"
+          printf 'FROM scratch\nCOPY app /app\n' > "$RUNNER_TEMP/ctx-clean/Dockerfile"
+          printf 'FROM scratch\nCOPY app /app\n' > "$RUNNER_TEMP/ctx-planted/Dockerfile"
+          echo '{"name":"lodash","version":"4.17.15","license":"MIT"}' > "$RUNNER_TEMP/ctx-planted/app/node_modules/lodash/package.json"
+          {
+            echo "-----BEGIN RSA PRIVATE KEY-----"
+            for _ in 1 2 3 4 5 6; do head -c 48 /dev/urandom | base64 -w0; echo; done
+            echo "-----END RSA PRIVATE KEY-----"
+          } > "$RUNNER_TEMP/ctx-planted/app/key.pem"
+          docker build -q -t selftest-clean "$RUNNER_TEMP/ctx-clean"
+          docker build -q -t selftest-planted "$RUNNER_TEMP/ctx-planted"
+          docker save -o "$out/clean.tar" selftest-clean
+          docker save -o "$out/planted.tar" selftest-planted
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: selftest-images
+          path: ${{ runner.temp }}/images
+          retention-days: 1
+
+  image-scan:
+    name: Trivy image action
+    needs: image-build
+    runs-on: ubuntu-slim
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: selftest-images
+          path: ${{ runner.temp }}/images
+
+      - name: Clean image with blocking on
+        id: clean
+        uses: ./.github/actions/trivy-image
+        with:
+          tarball: ${{ runner.temp }}/images/clean.tar
+          ignore-file: tests/fixtures/none.trivyignore
+
+      - name: Planted image with blocking on
+        id: planted-fail
+        continue-on-error: true
+        uses: ./.github/actions/trivy-image
+        with:
+          tarball: ${{ runner.temp }}/images/planted.tar
+          ignore-file: tests/fixtures/none.trivyignore
+
+      - name: Planted image, report only
+        id: planted-report
+        uses: ./.github/actions/trivy-image
+        with:
+          tarball: ${{ runner.temp }}/images/planted.tar
+          ignore-file: tests/fixtures/none.trivyignore
+          fail: "false"
+
+      # The ignore file is the baseline: accepting every reported finding makes the scan pass.
+      - name: Write an ignore file for the reported findings
+        env:
+          REPORT: ${{ steps.planted-report.outputs.report-file }}
+        run: |
+          node -e '
+            const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const ids = new Set();
+            for (const r of j.Results || []) {
+              for (const v of r.Vulnerabilities || []) ids.add(v.VulnerabilityID);
+              for (const s of r.Secrets || []) ids.add(s.RuleID);
+            }
+            let out = "";
+            for (const id of ids) out += "# accepted by the self-test baseline check\n" + id + "\n";
+            require("fs").writeFileSync(process.argv[2], out);
+            console.log("ignoring", [...ids].join(", "));
+          ' "$REPORT" "$RUNNER_TEMP/accepted.trivyignore"
+
+      - name: Planted image with its findings in the ignore file
+        id: planted-ignored
+        uses: ./.github/actions/trivy-image
+        with:
+          tarball: ${{ runner.temp }}/images/planted.tar
+          ignore-file: ${{ runner.temp }}/accepted.trivyignore
+
+      - name: An ignore entry without a reason is rejected
+        id: no-reason
+        continue-on-error: true
+        uses: ./.github/actions/trivy-image
+        with:
+          tarball: ${{ runner.temp }}/images/clean.tar
+          ignore-file: tests/fixtures/no-reason.trivyignore
+
+      - name: Assert
+        env:
+          CLEAN: ${{ steps.clean.outputs.findings }}
+          PLANTED_OUTCOME: ${{ steps.planted-fail.outcome }}
+          PLANTED_FOUND: ${{ steps.planted-fail.outputs.findings }}
+          REPORT_FOUND: ${{ steps.planted-report.outputs.findings }}
+          IGNORED: ${{ steps.planted-ignored.outputs.findings }}
+          NO_REASON: ${{ steps.no-reason.outcome }}
+        run: |
+          fail=0
+          check() { if [ "$2" = "$3" ]; then echo "ok: $1 = $2"; else echo "::error::$1: expected '$3', got '$2'"; fail=1; fi; }
+          check "clean image findings" "$CLEAN" "0"
+          check "planted image fails when blocking" "$PLANTED_OUTCOME" "failure"
+          [ "${PLANTED_FOUND:-0}" -ge 2 ] && echo "ok: planted findings = $PLANTED_FOUND" || { echo "::error::expected a vulnerability and a secret, got '$PLANTED_FOUND'"; fail=1; }
+          [ "${REPORT_FOUND:-0}" -ge 2 ] && echo "ok: report-only findings = $REPORT_FOUND" || { echo "::error::report-only run found '$REPORT_FOUND'"; fail=1; }
+          check "findings left after the ignore file" "$IGNORED" "0"
+          check "ignore entry without a reason" "$NO_REASON" "failure"
+          exit "$fail"
+
+  selftest:
+    name: Self-test
+    needs: [parsers, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan]
+    if: ${{ always() }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 2
+    env:
+      RESULTS: ${{ join(needs.*.result, ' ') }}
+      ENFORCE: ${{ inputs.enforce }}
+    steps:
+      - run: |
+          echo "results: $RESULTS"
+          # With enforce on, security-planted is expected to fail and assert-planted is skipped.
+          if [ "$ENFORCE" = true ]; then echo "enforce run: inspect the security-planted jobs by hand"; exit 0; fi
+          case " $RESULTS " in *" failure "*|*" cancelled "*|*" skipped "*) exit 1 ;; esac

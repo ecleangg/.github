@@ -1,15 +1,15 @@
-name: Delete old Action runs
+name: Delete old runs
 
+# Reusable: deletes workflow runs older than seven days. The calling job needs actions: write.
 on:
-  schedule:
-    - cron: "0 3 * * *" # Run daily at 03:00 UTC
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   delete-runs:
+    name: Delete old Action runs
     runs-on: ubuntu-slim
     permissions:
       actions: write
