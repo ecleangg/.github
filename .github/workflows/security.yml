@@ -92,24 +92,21 @@ jobs:
       ACTIONLINT_VERSION: 1.7.12
       ACTIONLINT_SHA256_AMD64: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
       ACTIONLINT_SHA256_ARM64: 325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
-      ZIZMOR_VERSION: 1.31.1
-      ZIZMOR_SHA256_AMD64: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
-      ZIZMOR_SHA256_ARM64: 37eebbd5762a44f262d94875431b14a6d2402991e90a685113ea97b8b41be833
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Install actionlint and zizmor
+      - name: Install actionlint
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-actionlint" "$RUNNER_TEMP/dl-zizmor"
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-actionlint"
           # The runner's arch (see runs-on above) can be ARM; the release archive and
           # its pinned checksum must match the runner's arch or the binary fails to exec.
           case "$RUNNER_ARCH" in
-            X64) alint_arch=amd64; alint_sha256="$ACTIONLINT_SHA256_AMD64"; zizmor_target=x86_64-unknown-linux-gnu; zizmor_sha256="$ZIZMOR_SHA256_AMD64" ;;
-            ARM64) alint_arch=arm64; alint_sha256="$ACTIONLINT_SHA256_ARM64"; zizmor_target=aarch64-unknown-linux-gnu; zizmor_sha256="$ZIZMOR_SHA256_ARM64" ;;
+            X64) alint_arch=amd64; alint_sha256="$ACTIONLINT_SHA256_AMD64" ;;
+            ARM64) alint_arch=arm64; alint_sha256="$ACTIONLINT_SHA256_ARM64" ;;
             *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
           esac
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" \
@@ -117,14 +114,9 @@ jobs:
           echo "${alint_sha256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/dl-actionlint" actionlint
           install -m 0755 "$RUNNER_TEMP/dl-actionlint/actionlint" "$RUNNER_TEMP/bin/actionlint"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/zizmor.tgz" \
-            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-${zizmor_target}.tar.gz"
-          echo "${zizmor_sha256}  $RUNNER_TEMP/zizmor.tgz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/zizmor.tgz" -C "$RUNNER_TEMP/dl-zizmor"
-          install -m 0755 "$RUNNER_TEMP/dl-zizmor/zizmor" "$RUNNER_TEMP/bin/zizmor"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      - name: Run actionlint and zizmor
+      - name: Run actionlint
         id: run
         env:
           SCAN_PATH: ${{ inputs.path }}
@@ -132,7 +124,6 @@ jobs:
           set +e -uo pipefail
           cd "$SCAN_PATH"
           echo '[]' > "$RUNNER_TEMP/actionlint.json"
-          echo '[]' > "$RUNNER_TEMP/zizmor.json"
           if [ ! -d .github ]; then
             echo "No .github directory under $SCAN_PATH; nothing to lint."
             echo "applicable=false" >> "$GITHUB_OUTPUT"
@@ -145,15 +136,23 @@ jobs:
             actionlint -no-color -format '{{json .}}' "${files[@]}" > "$RUNNER_TEMP/actionlint.json"
             echo "actionlint exit code $?"
           fi
-          # zizmor reads .github/zizmor.yml itself. --no-online-audits keeps it offline, so it needs
-          # no token. --no-exit-codes: a finding is not a tool error; the gate step decides.
-          zizmor --no-online-audits --no-exit-codes --format=json .github > "$RUNNER_TEMP/zizmor.json" 2> "$RUNNER_TEMP/zizmor.err"
-          zrc=$?
-          if [ "$zrc" -ne 0 ]; then
-            echo "::error title=zizmor::zizmor failed with exit code $zrc"
-            cat "$RUNNER_TEMP/zizmor.err"
-            exit 1
-          fi
+
+      # zizmor reads <path>/.github/zizmor.yml itself; offline audits need no token. The action has no
+      # JSON output: `annotations` writes GitHub workflow commands (high: error, medium and low:
+      # warning, informational: notice) to $RUNNER_TEMP/zizmor, which the gate parses. zizmor exits
+      # non-zero on any finding, so the step may fail; the gate tells a finding from a tool error.
+      - name: Run zizmor
+        id: zizmor
+        if: ${{ steps.run.outputs.applicable == 'true' }}
+        continue-on-error: true
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          inputs: ${{ inputs.path }}/.github
+          version: 1.31.1
+          online-audits: "false"
+          advanced-security: "false"
+          annotations: "true"
+          color: "false"
 
       - name: Summarize and gate
         id: gate
@@ -162,25 +161,30 @@ jobs:
           EVENT: ${{ github.event_name }}
           REPORT_ONLY: ${{ inputs.report-only }}
           SCAN_PATH: ${{ inputs.path }}
+          ZIZMOR_OUTCOME: ${{ steps.zizmor.outcome }}
         run: |
           cat > "$RUNNER_TEMP/gate.js" <<'EOF'
           const fs = require("fs");
           const tmp = process.env.RUNNER_TEMP;
           const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 300);
           const al = JSON.parse(fs.readFileSync(`${tmp}/actionlint.json`, "utf8") || "[]") || [];
-          const zz = JSON.parse(fs.readFileSync(`${tmp}/zizmor.json`, "utf8") || "[]") || [];
-          const order = { Critical: 5, High: 4, Medium: 3, Low: 2, Informational: 1, Unknown: 0 };
-          const zf = zz.map((f) => {
-            const loc = f.locations.find((l) => l.symbolic.kind === "Primary") || f.locations[0];
-            return {
-              sev: f.determinations.severity,
-              rule: f.ident,
-              file: loc.symbolic.key.Local?.verbatim_path ?? "remote",
-              line: loc.concrete.location.start_point.row + 1,
-              note: `${f.desc}: ${loc.symbolic.annotation}`,
-              url: f.url,
-            };
-          }).sort((a, b) => (order[b.sev] ?? 0) - (order[a.sev] ?? 0));
+          const zout = fs.existsSync(`${tmp}/zizmor`) ? fs.readFileSync(`${tmp}/zizmor`, "utf8") : "";
+          const order = { High: 4, "Medium or low": 3, Informational: 1 };
+          // ::<level> file=<path>,line=<n>,title=<rule>::<file>:<line>: <desc>: <annotation>
+          const level = { error: "High", warning: "Medium or low", notice: "Informational" };
+          const zf = zout.split("\n").map((l) => l.match(/^::(error|warning|notice) file=([^,]*),line=(\d+),title=([^:]+)::(.*)$/)).filter(Boolean).map((m) => ({
+            sev: level[m[1]],
+            rule: m[4],
+            file: m[2],
+            line: Number(m[3]),
+            note: m[5].replace(/^[^:]*:\d+: /, ""),
+            url: `https://docs.zizmor.sh/audits/#${m[4]}`,
+          })).sort((a, b) => (order[b.sev] ?? 0) - (order[a.sev] ?? 0));
+          // zizmor exits non-zero on findings; a failure that printed none is a tool error.
+          if (process.env.ZIZMOR_OUTCOME !== "success" && zf.length === 0) {
+            console.log(`::error title=zizmor::zizmor failed (step outcome ${process.env.ZIZMOR_OUTCOME}); see the Run zizmor step`);
+            process.exit(1);
+          }
           const zBlocking = zf.filter((f) => (order[f.sev] ?? 0) >= order.High);
           const blocking = al.length + zBlocking.length;
           let md = "## Workflows: actionlint and zizmor\n\n";
@@ -199,7 +203,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `blocking=${blocking}\n`);
           for (const e of al) console.log(`::error file=${e.filepath},line=${e.line}::actionlint ${e.kind}: ${String(e.message).slice(0, 200)}`);
-          for (const f of zBlocking) console.log(`::error file=${f.file},line=${f.line}::zizmor ${f.rule}: ${f.note}`);
+          // zizmor already annotated its own findings in the Run zizmor step.
           const enforce = process.env.EVENT !== "schedule" && process.env.REPORT_ONLY !== "true";
           if (blocking > 0 && enforce) process.exitCode = 1;
           EOF
@@ -623,44 +627,12 @@ jobs:
       contents: read
     outputs:
       blocking: ${{ steps.gate.outputs.blocking }}
-    env:
-      TRIVY_VERSION: 0.76.1
-      TRIVY_SHA256_AMD64: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
-      TRIVY_SHA256_ARM64: e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Install Trivy
-        id: install
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-trivy"
-          # The runner's arch (see runs-on above) can be ARM; the release archive and
-          # its pinned checksum must match the runner's arch or the binary fails to exec.
-          case "$RUNNER_ARCH" in
-            X64) trivy_arch=64bit; sha256="$TRIVY_SHA256_AMD64" ;;
-            ARM64) trivy_arch=ARM64; sha256="$TRIVY_SHA256_ARM64" ;;
-            *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
-          esac
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${trivy_arch}.tar.gz"
-          echo "${sha256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP/dl-trivy" trivy
-          install -m 0755 "$RUNNER_TEMP/dl-trivy/trivy" "$RUNNER_TEMP/bin/trivy"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-
-      # The checks bundle comes from ghcr.io; the cache keeps most runs off the registry rate limit.
-      - name: Cache the Trivy checks bundle
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/trivy
-          key: trivy-checks-${{ runner.os }}-${{ steps.install.outputs.day }}
-          restore-keys: trivy-checks-${{ runner.os }}-
 
       - name: Resolve the comparison base
         id: base
@@ -689,40 +661,65 @@ jobs:
           echo "enforce=$enforce" >> "$GITHUB_OUTPUT"
           echo "compare=$compare enforce=$enforce base=${base:-none}"
 
-      - name: Scan head and base
+      - name: Prepare the scan arguments
+        id: args
         env:
           SCAN_PATH: ${{ inputs.path }}
           EXCLUDE: ${{ inputs.exclude }}
-          COMPARE: ${{ steps.base.outputs.compare }}
         run: |
-          set +e -uo pipefail
+          set -euo pipefail
           ignore=""
           if [ -f "$GITHUB_WORKSPACE/$SCAN_PATH/.trivyignore" ]; then ignore="$GITHUB_WORKSPACE/$SCAN_PATH/.trivyignore"; fi
           # Every entry in .trivyignore needs a reason: a comment on the line above or after it.
           if [ -n "$ignore" ]; then
-            if ! awk '
+            awk '
               /^[[:space:]]*$/ { prev = ""; next }
               /^[[:space:]]*#/ { prev = "c"; next }
               { if (prev != "c" && $0 !~ /#/) { printf "::error file=.trivyignore,line=%d::Entry without a reason; add a comment above it\n", NR; bad = 1 } prev = "" }
-              END { exit bad }' "$ignore"; then exit 1; fi
+              END { exit bad }' "$ignore"
           fi
-          scan() { # scan <root> <name>
-            local root="$1" name="$2" rc=0 attempt
-            local -a args=(config --misconfig-scanners dockerfile --severity "HIGH,CRITICAL" --format json
-              --skip-dirs node_modules --skip-dirs dist --skip-dirs build --skip-dirs .svelte-kit --skip-dirs target)
-            while IFS= read -r d; do [ -n "$d" ] && args+=(--skip-dirs "$d"); done <<< "$EXCLUDE"
-            [ -n "$ignore" ] && args+=(--ignorefile "$ignore")
-            for attempt in 1 2 3; do
-              ( cd "$root/$SCAN_PATH" && trivy "${args[@]}" --output "$RUNNER_TEMP/trivy-$name.json" . ) > "$RUNNER_TEMP/trivy-$name.log" 2>&1 && return 0
-              rc=$?
-              sleep $((attempt * 10))
-            done
-            echo "::error title=Trivy::trivy config failed with exit code $rc"
-            tail -n 20 "$RUNNER_TEMP/trivy-$name.log"
-            return 1
-          }
-          scan "$GITHUB_WORKSPACE" head || exit 1
-          if [ "$COMPARE" = base ]; then scan "$RUNNER_TEMP/base" base || exit 1; fi
+          skip="node_modules,dist,build,.svelte-kit,target"
+          while IFS= read -r d; do [ -n "$d" ] && skip="$skip,$d"; done <<< "$EXCLUDE"
+          echo "ignore=$ignore" >> "$GITHUB_OUTPUT"
+          echo "skip-dirs=$skip" >> "$GITHUB_OUTPUT"
+
+      # trivy-action installs Trivy through aquasecurity/setup-trivy and caches the checks bundle
+      # (from ghcr.io) in cache-dir, which keeps most runs off the registry rate limit. cache-dir sits
+      # outside the workspace so the scan does not walk it. The action has no input for the
+      # misconfiguration scanners; Trivy reads them from the environment.
+      - name: Scan head
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_MISCONFIG_SCANNERS: dockerfile
+        with:
+          version: v0.76.1
+          scan-type: config
+          scan-ref: ${{ github.workspace }}/${{ inputs.path }}
+          severity: HIGH,CRITICAL
+          format: json
+          output: ${{ runner.temp }}/trivy-head.json
+          skip-dirs: ${{ steps.args.outputs.skip-dirs }}
+          trivyignores: ${{ steps.args.outputs.ignore }}
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          hide-progress: "true"
+
+      - name: Scan base
+        if: ${{ steps.base.outputs.compare == 'base' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_MISCONFIG_SCANNERS: dockerfile
+        with:
+          version: v0.76.1
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/base/${{ inputs.path }}
+          severity: HIGH,CRITICAL
+          format: json
+          output: ${{ runner.temp }}/trivy-base.json
+          skip-dirs: ${{ steps.args.outputs.skip-dirs }}
+          trivyignores: ${{ steps.args.outputs.ignore }}
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          hide-progress: "true"
+          skip-setup-trivy: "true"
 
       - name: Summarize and gate
         id: gate
