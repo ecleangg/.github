@@ -133,23 +133,6 @@ jobs:
       exclude: tests/fixtures
       concurrency-key: self
 
-  # TEMPORARY: real-hardware ARM evidence for the security.yml scanner installer fix.
-  # Remove this job once the fix/security-yml-arm-support PR has a passing run on it.
-  security-arm:
-    name: Security on this repo (ARM64)
-    permissions:
-      contents: read
-    uses: ./.github/workflows/security.yml
-    with:
-      workflows: true
-      secrets: true
-      osv: true
-      opengrep: true
-      trivy-config: true
-      exclude: tests/fixtures
-      concurrency-key: arm
-      runs-on: blacksmith-2vcpu-ubuntu-2604-arm
-
   security-clean:
     name: Security on clean fixtures
     permissions:
