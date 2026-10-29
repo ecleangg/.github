@@ -1,0 +1,3 @@
+#!/bin/sh
+# Forwards to the dispatcher next to it; the same stub is installed for every hook name.
+exec "$(dirname "$0")/dispatch" "$(basename "$0")" "$@"

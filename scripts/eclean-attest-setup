@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# One-time setup of an SSH signing key for commits and attestations.
+#
+#   eclean-attest-setup [--key <path>] [--no-passphrase]
+#
+# Creates an ed25519 key if none is configured, sets gpg.format=ssh, user.signingkey and
+# commit.gpgsign=true globally, and prints the line to submit to
+# ecleangg/.github/.github/attestation/allowed_signers by pull request.
+set -euo pipefail
+
+key="$HOME/.ssh/eclean_signing_ed25519" pass=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --key) key="${2:?--key needs a path}"; shift 2 ;;
+    --no-passphrase) pass=0; shift ;;
+    -h | --help) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "eclean-attest-setup: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+email="$(git config --get user.email || true)"
+[ -n "$email" ] || { echo "eclean-attest-setup: set git user.email first (your eclean.gg address)" >&2; exit 1; }
+
+existing="$(git config --global --get user.signingkey || true)"
+if [ -n "$existing" ] && [ "$(git config --global --get gpg.format || true)" = ssh ]; then
+  case "$existing" in "~/"*) existing="$HOME/${existing#"~/"}" ;; esac
+  key="$existing"
+  echo "Using the configured signing key: $key"
+fi
+case "$key" in *.pub) pub="$key" ;; *) pub="$key.pub" ;; esac
+
+if [ ! -e "$pub" ]; then
+  mkdir -p "$(dirname "$key")"
+  if [ "$pass" = 1 ]; then ssh-keygen -t ed25519 -C "$email" -f "$key"; else ssh-keygen -t ed25519 -C "$email" -N "" -f "$key"; fi
+fi
+
+git config --global gpg.format ssh
+git config --global user.signingkey "$pub"
+git config --global commit.gpgsign true
+
+echo
+echo "Add this line to .github/attestation/allowed_signers in ecleangg/.github (pull request),"
+echo "and upload the same public key to GitHub as a Signing Key (commits must be signed):"
+echo
+printf '%s namespaces="eclean-verify" %s\n' "$email" "$(cut -d' ' -f1,2 "$pub")"

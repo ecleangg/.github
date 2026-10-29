@@ -37,6 +37,60 @@ jobs:
           persist-credentials: false
       - run: node --test .github/actions/coverage-summary/parsers.test.js
 
+  attestation:
+    name: Attestation and git hooks
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Script tests (attest, verify, installer, dispatcher)
+        run: bash tests/attest/run.sh
+      - name: Build a throwaway attested repository
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          t="$RUNNER_TEMP/att"
+          mkdir -p "$t"
+          ssh-keygen -q -t ed25519 -N "" -C ci -f "$t/key"
+          printf 'ci@eclean.gg namespaces="eclean-verify" %s\n' "$(cut -d' ' -f1,2 "$t/key.pub")" > "$t/allowed"
+          git init -q --bare "$t/origin.git"
+          git init -q "$t/work"
+          cd "$t/work"
+          git config user.email ci@eclean.gg
+          git config user.name ci
+          git remote add origin "$t/origin.git"
+          echo a > a.txt
+          git add a.txt
+          git commit -qm init
+          bash "$GITHUB_WORKSPACE/scripts/eclean-attest" --cmd true --key "$t/key" --repo "$REPOSITORY"
+          echo b > a.txt
+          git commit -qam change
+      - name: Action accepts the attested commit
+        id: valid
+        uses: ./.github/actions/verify-attestation
+        with:
+          working-directory: ${{ runner.temp }}/att/work
+          ref: HEAD~1
+          allowed-signers-source: ${{ runner.temp }}/att/allowed
+      - name: Action rejects the changed tree
+        id: invalid
+        uses: ./.github/actions/verify-attestation
+        with:
+          ref: HEAD
+          working-directory: ${{ runner.temp }}/att/work
+          allowed-signers-source: ${{ runner.temp }}/att/allowed
+      - name: Assert
+        env:
+          VALID: ${{ steps.valid.outputs.valid }}
+          INVALID: ${{ steps.invalid.outputs.valid }}
+          REASON: ${{ steps.invalid.outputs.reason }}
+        run: |
+          echo "valid=$VALID invalid=$INVALID ($REASON)"
+          [ "$VALID" = true ] && [ "$INVALID" = false ]
+
   security-self:
     name: Security on this repo
     permissions:
@@ -350,7 +404,7 @@ jobs:
 
   selftest:
     name: Self-test
-    needs: [parsers, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
+    needs: [parsers, attestation, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
     if: ${{ always() }}
     runs-on: ubuntu-slim
     timeout-minutes: 2

@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Check the attestation notes of a checkout. Prints `valid=true|false` and `reason=...` (plus
+# `attester=` and `time=` when valid); always exits 0 unless called wrongly, so a caller never fails
+# on an invalid attestation.
+#
+#   eclean-attest-verify --repo owner/name --allowed-signers <file> [--ref <sha>] [--max-age-days N]
+#
+# Run it inside a checkout that already holds refs/notes/eclean-verify. A note on any commit counts
+# if its signed tree equals the tree of --ref.
+set -uo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=eclean-attest-lib.sh
+. "$here/eclean-attest-lib.sh"
+
+repo="" ref="HEAD" allowed="" max_age=7
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) repo="${2:-}"; shift 2 ;;
+    --ref) ref="${2:-}"; shift 2 ;;
+    --allowed-signers) allowed="${2:-}"; shift 2 ;;
+    --max-age-days) max_age="${2:-}"; shift 2 ;;
+    *) echo "eclean-attest-verify: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$repo" ] && [ -n "$allowed" ] || { echo "eclean-attest-verify: --repo and --allowed-signers are required" >&2; exit 2; }
+case "$max_age" in '' | *[!0-9]*) echo "eclean-attest-verify: --max-age-days must be a number" >&2; exit 2 ;; esac
+
+result() { echo "valid=$1"; echo "reason=$2"; [ -z "${3:-}" ] || echo "attester=$3"; [ -z "${4:-}" ] || echo "time=$4"; exit 0; }
+
+head="$(git rev-parse --verify -q "$ref^{commit}")" || result false "ref $ref is not in the checkout"
+tree="$(git rev-parse "$head^{tree}")"
+[ -s "$allowed" ] || result false "allowed_signers file is missing or empty"
+git rev-parse -q --verify "$EA_NOTES_REF" >/dev/null || result false "no attestation found (no $EA_NOTES_REF)"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+now="${ECLEAN_ATTEST_NOW:-$(date -u +%s)}" # ECLEAN_ATTEST_NOW is for tests only
+
+# The note on HEAD first, then every other note; the signed tree decides whether one applies.
+{ git notes --ref="$EA_NOTES_REF" list "$head" >/dev/null 2>&1 && echo "$head"
+  git notes --ref="$EA_NOTES_REF" list | awk '{print $2}'; } | awk '!seen[$0]++' >"$tmp/commits"
+
+fail="no attestation for tree ${tree:0:12}"
+while read -r c; do
+  git notes --ref="$EA_NOTES_REF" show "$c" >"$tmp/note" 2>/dev/null || continue
+  grep -qF "\"tree\":\"$tree\"" "$tmp/note" || continue
+  awk '/^-----BEGIN SSH SIGNATURE-----/{s=1} !s' "$tmp/note" >"$tmp/payload"
+  awk '/^-----BEGIN SSH SIGNATURE-----/{s=1} s' "$tmp/note" >"$tmp/payload.sig"
+  attester="$(ea_field attester "$tmp/payload")"
+  [ -n "$attester" ] || { fail="attestation has no attester"; continue; }
+  if ! ssh-keygen -Y verify -f "$allowed" -I "$attester" -n "$EA_NAMESPACE" -s "$tmp/payload.sig" <"$tmp/payload" >/dev/null 2>&1; then
+    fail="signature invalid or signer $attester is not in allowed_signers"; continue
+  fi
+  case "$attester" in *"[bot]"*) fail="attester $attester is a bot"; continue ;; esac
+  [ "$(ea_field v "$tmp/payload")" = 1 ] || { fail="unsupported attestation version"; continue; }
+  [ "$(ea_field repo "$tmp/payload")" = "$repo" ] || { fail="attestation is for another repository"; continue; }
+  [ "$(ea_field tree "$tmp/payload")" = "$tree" ] || { fail="tree changed since the attestation"; continue; }
+  want="\"files\":$(ea_files_json "$head")"
+  have="$(sed -n 's/.*\("files":{[^}]*}\).*/\1/p' "$tmp/payload" | head -n 1)"
+  [ "$have" = "$want" ] || { fail="lockfile or toolchain files changed since the attestation"; continue; }
+  epoch="$(ea_field epoch "$tmp/payload")"
+  case "$epoch" in '' | *[!0-9]*) fail="attestation has no valid timestamp"; continue ;; esac
+  [ "$epoch" -le $((now + 300)) ] || { fail="attestation timestamp is in the future"; continue; }
+  [ $((now - epoch)) -le $((max_age * 86400)) ] || { fail="attestation is older than $max_age days"; continue; }
+  result true "attested by $attester" "$attester" "$(ea_field time "$tmp/payload")"
+done <"$tmp/commits"
+result false "$fail"

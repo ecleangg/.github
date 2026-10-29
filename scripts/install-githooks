@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Install the eclean hook dispatcher machine-wide.
+#
+#   install-githooks [--force]
+#
+# Copies githooks/ to ~/.config/eclean/githooks and sets `git config --global core.hooksPath`.
+# Idempotent. Refuses to replace a different global core.hooksPath unless --force is given.
+set -euo pipefail
+
+force=0
+case "${1:-}" in
+  --force) force=1 ;;
+  -h | --help) sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  "") ;;
+  *) echo "install-githooks: unknown argument: $1" >&2; exit 2 ;;
+esac
+
+src="$(cd "$(dirname "${BASH_SOURCE[0]}")/../githooks" && pwd)"
+dest="$HOME/.config/eclean/githooks"
+
+current="$(git config --global --get core.hooksPath || true)"
+case "$current" in "~/"*) expanded="$HOME/${current#"~/"}" ;; *) expanded="$current" ;; esac
+if [ -n "$current" ] && [ "$expanded" != "$dest" ] && [ "$force" != 1 ]; then
+  echo "install-githooks: global core.hooksPath is already $current; use --force to replace it" >&2
+  exit 1
+fi
+
+mkdir -p "$dest"
+cp "$src/dispatch" "$dest/dispatch"
+# One stub per standard client hook, so the global path never hides a repo's .git/hooks/<name>.
+for h in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg \
+  commit-msg post-commit pre-rebase post-checkout post-merge pre-push pre-auto-gc post-rewrite \
+  reference-transaction push-to-checkout; do
+  cp "$src/pre-commit" "$dest/$h"
+  chmod +x "$dest/$h"
+done
+chmod +x "$dest/dispatch"
+git config --global core.hooksPath '~/.config/eclean/githooks'
+echo "install-githooks: installed to $dest (core.hooksPath set)"

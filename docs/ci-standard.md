@@ -50,6 +50,9 @@ native column themselves.
 - Runners: `ubuntu-slim` wherever it works (it has a 15-minute job limit and no Docker daemon). Jobs
   that need Docker run on `ubuntu-24.04`. `security.yml` takes `runs-on` to move its jobs.
 
+Local checks, signed attestations that let CI skip verify, and draft pull request behaviour are in
+[local-first.md](local-first.md).
+
 ## Calling the workflows
 
 Every `uses:` is pinned to a full commit SHA with a trailing version comment; Renovate keeps the SHA

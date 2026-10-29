@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Machine-wide git hook dispatcher. Usage: dispatch <hook-name> [hook args...]
+#
+# Only lightweight work runs here. pre-commit runs the repository's own hook, if it has one:
+# .githooks/pre-commit, else .husky/pre-commit, else `lefthook run pre-commit` when lefthook is
+# configured and installed. pre-push does nothing of its own: heavy checks run in CI or through
+# eclean-attest. Every hook then chains to the repository's .git/hooks/<name>, so installing the
+# global hooks path does not silently disable hooks a clone already had.
+set -uo pipefail
+
+name="${1:?hook name}"
+shift
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# A repo-local core.hooksPath wins. Git does not call this dispatcher then; if it is reached
+# anyway, hand over to the repo's directory and say so.
+local_path="$(git config --local --get core.hooksPath 2>/dev/null || true)"
+if [ -n "$local_path" ]; then
+  case "$local_path" in /*) dir="$local_path" ;; *) dir="$(git rev-parse --show-toplevel)/$local_path" ;; esac
+  if [ "$(cd "$dir" 2>/dev/null && pwd -P)" != "$self" ]; then
+    echo "eclean-githooks: warning: repo sets core.hooksPath=$local_path; the repo's hooks win over the global dispatcher" >&2
+    if [ -x "$dir/$name" ]; then exec "$dir/$name" "$@"; fi
+    exit 0
+  fi
+fi
+
+if [ "$name" = pre-commit ]; then
+  top="$(git rev-parse --show-toplevel)"
+  cd "$top" || exit 1
+  if [ -x .githooks/pre-commit ]; then
+    .githooks/pre-commit "$@" || exit $?
+  elif [ -f .husky/pre-commit ]; then
+    sh .husky/pre-commit "$@" || exit $?
+  elif { [ -f lefthook.yml ] || [ -f lefthook.yaml ] || [ -f lefthook.json ] || [ -f .lefthook.yml ]; } && command -v lefthook >/dev/null 2>&1; then
+    lefthook run pre-commit "$@" || exit $?
+  fi
+fi
+
+gitdir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -n "$gitdir" ] && [ -x "$gitdir/hooks/$name" ]; then
+  exec "$gitdir/hooks/$name" "$@"
+fi
+exit 0
