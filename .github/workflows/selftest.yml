@@ -106,11 +106,18 @@ jobs:
       RUN_FULL: ${{ needs.gate.outputs.run-full }}
       SKIP_VERIFY: ${{ needs.gate.outputs.skip-verify }}
       DRAFT: ${{ needs.gate.outputs.draft }}
+      IS_DRAFT_PR: ${{ github.event.pull_request.draft }}
     steps:
       - run: |
-          echo "run-full=$RUN_FULL skip-verify=$SKIP_VERIFY draft=$DRAFT"
-          # This workflow is never a draft run and no attestation exists for these commits.
-          [ "$RUN_FULL" = true ] && [ "$SKIP_VERIFY" = false ] && [ "$DRAFT" = false ]
+          echo "run-full=$RUN_FULL skip-verify=$SKIP_VERIFY draft=$DRAFT (triggering PR draft=$IS_DRAFT_PR)"
+          # No attestation exists for these commits, so skip-verify is always false. draft mirrors
+          # whether the pull request that triggered this selftest run is itself a draft (e.g. a
+          # draft PR editing docs still triggers selftest.yml's own pull_request event).
+          want_draft=false
+          [ "$IS_DRAFT_PR" = true ] && want_draft=true
+          want_run_full=true
+          [ "$want_draft" = true ] && want_run_full=false
+          [ "$RUN_FULL" = "$want_run_full" ] && [ "$SKIP_VERIFY" = false ] && [ "$DRAFT" = "$want_draft" ]
 
   security-self:
     name: Security on this repo
