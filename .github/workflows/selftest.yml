@@ -212,7 +212,7 @@ jobs:
             const j = JSON.parse(require("fs").readFileSync("sbom.cdx.json", "utf8"));
             const names = (j.components || []).map((c) => c.name);
             if (j.bomFormat !== "CycloneDX") throw new Error("not CycloneDX: " + j.bomFormat);
-            if (!names.includes("lodash")) throw new Error("lodash missing from " + names.join(","));
+            if (!names.includes("is-number")) throw new Error("is-number missing from " + names.join(","));
             console.log("ok: CycloneDX with", names.length, "components");
           '
 
@@ -332,8 +332,8 @@ jobs:
           check() { if [ "$2" = "$3" ]; then echo "ok: $1 = $2"; else echo "::error::$1: expected '$3', got '$2'"; fail=1; fi; }
           check "clean image findings" "$CLEAN" "0"
           check "planted image fails when blocking" "$PLANTED_OUTCOME" "failure"
-          [ "${PLANTED_FOUND:-0}" -ge 2 ] && echo "ok: planted findings = $PLANTED_FOUND" || { echo "::error::expected a vulnerability and a secret, got '$PLANTED_FOUND'"; fail=1; }
-          [ "${REPORT_FOUND:-0}" -ge 2 ] && echo "ok: report-only findings = $REPORT_FOUND" || { echo "::error::report-only run found '$REPORT_FOUND'"; fail=1; }
+          if [ "${PLANTED_FOUND:-0}" -ge 2 ]; then echo "ok: planted findings = $PLANTED_FOUND"; else echo "::error::expected a vulnerability and a secret, got '$PLANTED_FOUND'"; fail=1; fi
+          if [ "${REPORT_FOUND:-0}" -ge 2 ]; then echo "ok: report-only findings = $REPORT_FOUND"; else echo "::error::report-only run found '$REPORT_FOUND'"; fail=1; fi
           check "findings left after the ignore file" "$IGNORED" "0"
           check "ignore entry without a reason" "$NO_REASON" "failure"
           exit "$fail"

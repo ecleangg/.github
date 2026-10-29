@@ -7,7 +7,7 @@ const { parse, totals, pct, fmt, renderReport } = require("./parsers");
 
 const env = process.env;
 const name = env.COVERAGE_NAME;
-const outDir = env.COVERAGE_OUT_DIR;
+const outDir = path.join(env.COVERAGE_OUT_DIR, name); // one directory per report: a job may report several
 const failOnError = env.COVERAGE_FAIL_ON_ERROR === "true";
 
 function setOutput(key, value) {

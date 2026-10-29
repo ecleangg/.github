@@ -92,7 +92,7 @@ runs:
         TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
         TRIVY_BIN: ${{ steps.install.outputs.bin }}
       run: |
-        set -uo pipefail
+        set +e -uo pipefail
         if [ -n "$IMAGE" ] && [ -n "$TARBALL" ]; then echo "::error::Set image or tarball, not both"; exit 1; fi
         if [ -z "$IMAGE" ] && [ -z "$TARBALL" ]; then echo "::error::Set image or tarball"; exit 1; fi
         args=(image --scanners vuln,secret --severity "$SEVERITY" --ignore-unfixed --format json

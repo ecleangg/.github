@@ -120,7 +120,7 @@ jobs:
         env:
           SCAN_PATH: ${{ inputs.path }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           cd "$SCAN_PATH"
           echo '[]' > "$RUNNER_TEMP/actionlint.json"
           echo '[]' > "$RUNNER_TEMP/zizmor.json"
@@ -234,13 +234,14 @@ jobs:
           BEFORE: ${{ github.event.before }}
           REPORT_ONLY: ${{ inputs.report-only }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           since=""
-          case "$EVENT" in
-            # The merge commit's first parent is the base branch tip: scan what the PR adds.
-            pull_request|pull_request_target) since="$(git rev-parse --verify -q 'HEAD^1' || true)" ;;
-            push) case "$BEFORE" in ''|0000000000000000000000000000000000000000) ;; *) since="$BEFORE" ;; esac ;;
-          esac
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            since="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            since="$BEFORE"
+          fi
           if [ -n "$since" ] && ! git cat-file -e "${since}^{commit}" 2>/dev/null; then since=""; fi
           args=(git file://. --branch HEAD --only-verified --no-update --json)
           if [ -n "$since" ]; then
@@ -319,18 +320,21 @@ jobs:
         run: |
           set -euo pipefail
           base=""
-          case "$EVENT" in
-            pull_request|pull_request_target) base="$(git rev-parse --verify -q 'HEAD^1' || true)" ;;
-            push) case "$BEFORE" in ''|0000000000000000000000000000000000000000) ;; *) base="$BEFORE" ;; esac ;;
-          esac
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          # A push is compared with the commit before it (all zeros: a new branch, nothing to compare).
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            base="$BEFORE"
+          fi
           if [ -n "$base" ] && ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base=""; fi
-          # compare=diff: only findings absent from the base count. compare=full: every finding counts.
+          # compare=base: only findings absent from the base count. compare=full: every finding counts.
           compare=full
-          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=diff; fi
+          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=base; fi
           # Advisory when asked, on schedule, or when a baseline is wanted but there is nothing to compare with.
           enforce=true
           if [ "$EVENT" = schedule ] || [ "$REPORT_ONLY" = true ] || { [ "$BASELINE" = true ] && [ "$compare" = full ]; }; then enforce=false; fi
-          if [ "$compare" = diff ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
+          if [ "$compare" = base ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
           echo "compare=$compare" >> "$GITHUB_OUTPUT"
           echo "enforce=$enforce" >> "$GITHUB_OUTPUT"
           echo "compare=$compare enforce=$enforce base=${base:-none}"
@@ -341,12 +345,12 @@ jobs:
           EXCLUDE: ${{ inputs.exclude }}
           COMPARE: ${{ steps.base.outputs.compare }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           scan() { # scan <root> <output>
-            local root="$1" out="$2" rc=0
+            local root="$1" out="$2"
             local -a ex=()
             while IFS= read -r d; do [ -n "$d" ] && ex+=(--x-exclude "$d"); done <<< "$EXCLUDE"
-            ( cd "$root/$SCAN_PATH" && osv-scanner scan source -r "${ex[@]}" --format json --output-file "$out" . ) > "$out.log" 2>&1 || rc=$?
+            ( cd "$root/$SCAN_PATH" && osv-scanner scan source -r "${ex[@]}" --format json --output-file "$out" . ) > "$out.log" 2>&1 || true
             # 0: clean, 1: vulnerabilities found. Anything else without a report is a tool error,
             # except "no package sources", which means there is nothing to scan.
             if [ ! -s "$out" ]; then
@@ -354,7 +358,7 @@ jobs:
             fi
           }
           scan "$GITHUB_WORKSPACE" "$RUNNER_TEMP/osv-head.json" || exit 1
-          if [ "$COMPARE" = diff ]; then scan "$RUNNER_TEMP/base" "$RUNNER_TEMP/osv-base.json" || exit 1; fi
+          if [ "$COMPARE" = base ]; then scan "$RUNNER_TEMP/base" "$RUNNER_TEMP/osv-base.json" || exit 1; fi
 
       - name: Summarize and gate
         id: gate
@@ -391,7 +395,7 @@ jobs:
             return out;
           };
           const head = load(`${tmp}/osv-head.json`);
-          const diff = process.env.COMPARE === "diff";
+          const diff = process.env.COMPARE === "base";
           let shown = head;
           if (diff) {
             const seen = new Map();
@@ -471,16 +475,19 @@ jobs:
         run: |
           set -euo pipefail
           base=""
-          case "$EVENT" in
-            pull_request|pull_request_target) base="$(git rev-parse --verify -q 'HEAD^1' || true)" ;;
-            push) case "$BEFORE" in ''|0000000000000000000000000000000000000000) ;; *) base="$BEFORE" ;; esac ;;
-          esac
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          # A push is compared with the commit before it (all zeros: a new branch, nothing to compare).
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            base="$BEFORE"
+          fi
           if [ -n "$base" ] && ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base=""; fi
           compare=full
-          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=diff; fi
+          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=base; fi
           enforce=true
           if [ "$EVENT" = schedule ] || [ "$REPORT_ONLY" = true ] || { [ "$BASELINE" = true ] && [ "$compare" = full ]; }; then enforce=false; fi
-          if [ "$compare" = diff ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
+          if [ "$compare" = base ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
           echo "compare=$compare" >> "$GITHUB_OUTPUT"
           echo "enforce=$enforce" >> "$GITHUB_OUTPUT"
           echo "compare=$compare enforce=$enforce base=${base:-none}"
@@ -493,7 +500,7 @@ jobs:
           EXCLUDE: ${{ inputs.exclude }}
           COMPARE: ${{ steps.base.outputs.compare }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           rules="$GITHUB_WORKSPACE/.opengrep-rules"
           scan() { # scan <root> <name>
             local root="$1" name="$2" rc=0
@@ -514,7 +521,7 @@ jobs:
             fi
           }
           scan "$GITHUB_WORKSPACE" head || exit 1
-          if [ "$COMPARE" = diff ]; then scan "$RUNNER_TEMP/base" base || exit 1; fi
+          if [ "$COMPARE" = base ]; then scan "$RUNNER_TEMP/base" base || exit 1; fi
 
       - name: Upload the SARIF and JSON reports
         if: ${{ !cancelled() }}
@@ -546,7 +553,7 @@ jobs:
               sev: r.extra.severity, path: r.path, line: r.start.line, text: String(r.extra.lines ?? "").trim(),
             }));
           const head = load(`${tmp}/opengrep-head.json`);
-          const diff = process.env.COMPARE === "diff";
+          const diff = process.env.COMPARE === "base";
           let shown = head;
           if (diff) {
             // Line numbers shift; the rule, the file and the matched source line identify a finding.
@@ -623,16 +630,19 @@ jobs:
         run: |
           set -euo pipefail
           base=""
-          case "$EVENT" in
-            pull_request|pull_request_target) base="$(git rev-parse --verify -q 'HEAD^1' || true)" ;;
-            push) case "$BEFORE" in ''|0000000000000000000000000000000000000000) ;; *) base="$BEFORE" ;; esac ;;
-          esac
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          # A push is compared with the commit before it (all zeros: a new branch, nothing to compare).
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            base="$BEFORE"
+          fi
           if [ -n "$base" ] && ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base=""; fi
           compare=full
-          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=diff; fi
+          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=base; fi
           enforce=true
           if [ "$EVENT" = schedule ] || [ "$REPORT_ONLY" = true ] || { [ "$BASELINE" = true ] && [ "$compare" = full ]; }; then enforce=false; fi
-          if [ "$compare" = diff ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
+          if [ "$compare" = base ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
           echo "compare=$compare" >> "$GITHUB_OUTPUT"
           echo "enforce=$enforce" >> "$GITHUB_OUTPUT"
           echo "compare=$compare enforce=$enforce base=${base:-none}"
@@ -643,7 +653,7 @@ jobs:
           EXCLUDE: ${{ inputs.exclude }}
           COMPARE: ${{ steps.base.outputs.compare }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           ignore=""
           if [ -f "$GITHUB_WORKSPACE/$SCAN_PATH/.trivyignore" ]; then ignore="$GITHUB_WORKSPACE/$SCAN_PATH/.trivyignore"; fi
           # Every entry in .trivyignore needs a reason: a comment on the line above or after it.
@@ -656,7 +666,7 @@ jobs:
           fi
           scan() { # scan <root> <name>
             local root="$1" name="$2" rc=0 attempt
-            local -a args=(config --misconfig-scanners dockerfile --severity HIGH,CRITICAL --format json
+            local -a args=(config --misconfig-scanners dockerfile --severity "HIGH,CRITICAL" --format json
               --skip-dirs node_modules --skip-dirs dist --skip-dirs build --skip-dirs .svelte-kit --skip-dirs target)
             while IFS= read -r d; do [ -n "$d" ] && args+=(--skip-dirs "$d"); done <<< "$EXCLUDE"
             [ -n "$ignore" ] && args+=(--ignorefile "$ignore")
@@ -670,7 +680,7 @@ jobs:
             return 1
           }
           scan "$GITHUB_WORKSPACE" head || exit 1
-          if [ "$COMPARE" = diff ]; then scan "$RUNNER_TEMP/base" base || exit 1; fi
+          if [ "$COMPARE" = base ]; then scan "$RUNNER_TEMP/base" base || exit 1; fi
 
       - name: Summarize and gate
         id: gate
@@ -688,7 +698,7 @@ jobs:
               file: r.Target, id: m.ID, sev: m.Severity, title: m.Title, msg: m.Message, line: m.CauseMetadata?.StartLine ?? "", url: m.PrimaryURL,
             })));
           const head = load(`${tmp}/trivy-head.json`);
-          const diff = process.env.COMPARE === "diff";
+          const diff = process.env.COMPARE === "base";
           let shown = head;
           if (diff) {
             const counts = new Map();
