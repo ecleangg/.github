@@ -1,0 +1,88 @@
+name: Verify attestation
+description: >-
+  Check for a signed eclean-verify attestation (made by scripts/eclean-attest) for the checked-out
+  commit. Never fails the job: `valid` is false and `reason` says why, and CI then runs verify
+  normally. Check out the pull request head commit (not the merge commit) before calling it.
+
+inputs:
+  ref:
+    description: "Commit whose tree must be attested (the pull request head sha)"
+    default: ${{ github.sha }}
+  allowed-signers-source:
+    description: "owner/repo@ref to read .github/attestation/allowed_signers from through the contents API, or a file path starting with / or ./"
+    default: ecleangg/.github@main
+  command-hint:
+    description: "Command a developer runs to attest, shown in the summary when no attestation applies"
+    default: eclean-attest
+  max-age-days:
+    description: "Attestations older than this many days are ignored"
+    default: "7"
+  working-directory:
+    description: "Directory of the checkout to verify"
+    default: "."
+  github-token:
+    description: "Token with contents: read on this repository and on the allowed-signers repository"
+    default: ${{ github.token }}
+
+outputs:
+  valid:
+    description: "true when a valid attestation covers the checked-out tree"
+    value: ${{ steps.verify.outputs.valid }}
+  reason:
+    description: "Human readable reason"
+    value: ${{ steps.verify.outputs.reason }}
+
+runs:
+  using: composite
+  steps:
+    - id: verify
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        WORKDIR: ${{ inputs.working-directory }}
+        REPO: ${{ github.repository }}
+        REF: ${{ inputs.ref }}
+        SOURCE: ${{ inputs.allowed-signers-source }}
+        HINT: ${{ inputs.command-hint }}
+        MAX_AGE: ${{ inputs.max-age-days }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        SERVER_URL: ${{ github.server_url }}
+        API_URL: ${{ github.api_url }}
+      run: |
+        valid=false
+        reason="verification did not run"
+        verifier="$(cd "$ACTION_PATH/../../.." && pwd)/scripts/eclean-attest-verify"
+        cd "$WORKDIR" || exit 0
+        signers="$RUNNER_TEMP/allowed_signers"
+        case "$SOURCE" in
+          /* | ./*) cp "$SOURCE" "$signers" 2>/dev/null || reason="allowed_signers path not readable" ;;
+          *@*)
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" \
+              "$API_URL/repos/${SOURCE%@*}/contents/.github/attestation/allowed_signers?ref=${SOURCE##*@}" \
+              -o "$signers" 2>/dev/null || reason="could not fetch allowed_signers from $SOURCE" ;;
+          *) reason="invalid allowed-signers-source" ;;
+        esac
+        if [ -s "$signers" ]; then
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          if git -c "http.$SERVER_URL/.extraheader=AUTHORIZATION: basic $auth" \
+            fetch -q --no-tags origin "+refs/notes/eclean-verify:refs/notes/eclean-verify" 2>/dev/null; then
+            out="$(bash "$verifier" --repo "$REPO" --ref "$REF" \
+              --allowed-signers "$signers" --max-age-days "$MAX_AGE" 2>/dev/null)" || out=""
+            v="$(printf '%s\n' "$out" | sed -n 's/^valid=//p' | head -n 1)"
+            r="$(printf '%s\n' "$out" | sed -n 's/^reason=//p' | head -n 1)"
+            who="$(printf '%s\n' "$out" | sed -n 's/^attester=//p' | head -n 1)"
+            when="$(printf '%s\n' "$out" | sed -n 's/^time=//p' | head -n 1)"
+            if [ "$v" = true ]; then valid=true; reason="attested by $who at $when"; elif [ -n "$r" ]; then reason="$r"; fi
+          else
+            reason="no attestation found (no eclean-verify notes on the remote)"
+          fi
+        fi
+        if [ "$valid" = true ]; then
+          echo "verify skipped: $reason" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "verify runs: $reason (attest locally with \`$HINT\`)" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        {
+          echo "valid=$valid"
+          echo "reason=$reason"
+        } >> "$GITHUB_OUTPUT"
