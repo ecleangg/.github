@@ -91,6 +91,27 @@ jobs:
           echo "valid=$VALID invalid=$INVALID ($REASON)"
           [ "$VALID" = true ] && [ "$INVALID" = false ]
 
+  gate:
+    name: PR gate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/pr-gate.yml
+
+  assert-gate:
+    name: PR gate outputs
+    needs: gate
+    runs-on: ubuntu-slim
+    timeout-minutes: 2
+    env:
+      RUN_FULL: ${{ needs.gate.outputs.run-full }}
+      SKIP_VERIFY: ${{ needs.gate.outputs.skip-verify }}
+      DRAFT: ${{ needs.gate.outputs.draft }}
+    steps:
+      - run: |
+          echo "run-full=$RUN_FULL skip-verify=$SKIP_VERIFY draft=$DRAFT"
+          # This workflow is never a draft run and no attestation exists for these commits.
+          [ "$RUN_FULL" = true ] && [ "$SKIP_VERIFY" = false ] && [ "$DRAFT" = false ]
+
   security-self:
     name: Security on this repo
     permissions:
@@ -404,7 +425,7 @@ jobs:
 
   selftest:
     name: Self-test
-    needs: [parsers, attestation, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
+    needs: [parsers, attestation, gate, assert-gate, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
     if: ${{ always() }}
     runs-on: ubuntu-slim
     timeout-minutes: 2
