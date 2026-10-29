@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 # Machine-wide git hook dispatcher. Usage: dispatch <hook-name> [hook args...]
 #
-# Only lightweight work runs here. pre-commit runs the repository's own hook, if it has one:
-# .githooks/pre-commit, else .husky/pre-commit, else `lefthook run pre-commit` when lefthook is
-# configured and installed. pre-push does nothing of its own: heavy checks run in CI or through
+# pre-commit runs the repository's own hook first, if it has one: .githooks/pre-commit, else
+# .husky/pre-commit, else `lefthook run pre-commit` when lefthook is configured and installed.
+# It then runs the repository's full verify command (same detection as scripts/eclean-attest) and,
+# on success, attests the commit automatically; a failing verify blocks the commit. Set
+# ECLEAN_SKIP_VERIFY=1 to skip the full verify step (loudly logged), or use `git commit --no-verify`
+# to skip every hook. pre-push does nothing of its own: heavy checks run in CI or through
 # eclean-attest. Every hook then chains to the repository's .git/hooks/<name>, so installing the
 # global hooks path does not silently disable hooks a clone already had.
+#
+# The commit object does not exist yet while pre-commit runs, so the signed note cannot be written
+# there: pre-commit runs verify and, on success, records the tree it verified in
+# $GIT_DIR/ECLEAN_ATTEST_PENDING; a post-commit step below writes the note once HEAD exists, if and
+# only if HEAD's tree still matches what was verified.
 set -uo pipefail
 
 name="${1:?hook name}"
@@ -33,6 +41,70 @@ if [ "$name" = pre-commit ]; then
     sh .husky/pre-commit "$@" || exit $?
   elif { [ -f lefthook.yml ] || [ -f lefthook.yaml ] || [ -f lefthook.json ] || [ -f .lefthook.yml ]; } && command -v lefthook >/dev/null 2>&1; then
     lefthook run pre-commit "$@" || exit $?
+  fi
+
+  gitdir_local="$(git rev-parse --git-dir 2>/dev/null || true)"
+  [ -n "$gitdir_local" ] && rm -f "$gitdir_local/ECLEAN_ATTEST_PENDING"
+
+  if [ "${ECLEAN_SKIP_VERIFY:-0}" = 1 ]; then
+    echo "eclean-githooks: *** ECLEAN_SKIP_VERIFY=1 set; skipping full verify and attestation for this commit ***" >&2
+  else
+    lib="$self/eclean-attest-lib.sh"
+    [ -f "$lib" ] || lib="$self/../scripts/eclean-attest-lib.sh"
+    if [ -f "$lib" ] && [ -n "$gitdir_local" ]; then
+      # shellcheck source=/dev/null
+      . "$lib"
+      if [ -n "$(git diff --name-only)" ]; then
+        echo "eclean-githooks: unstaged changes to tracked files present; skipping full verify/attestation for this commit (stage everything, or commit -a)" >&2
+      elif cmd="$(ea_detect_verify_cmd)"; then
+        before="$(git status --porcelain)"
+        echo "eclean-githooks: running full verify before commit: $cmd" >&2
+        if out="$(bash -c "$cmd" 2>&1)"; then
+          if [ "$(git status --porcelain)" != "$before" ]; then
+            echo "eclean-githooks: verify modified the working tree; stage the result and commit again" >&2
+            exit 1
+          fi
+          if key="$(ea_resolve_key)" && repo="$(ea_resolve_repo 2>/dev/null)"; then
+            tree="$(git write-tree)"
+            {
+              printf 'tree=%s\n' "$tree"
+              printf 'repo=%s\n' "$repo"
+              printf 'cmd=%s\n' "$cmd"
+              printf 'key=%s\n' "$key"
+              printf 'push=1\n'
+            } >"$gitdir_local/ECLEAN_ATTEST_PENDING"
+          elif [ ! -f "$gitdir_local/eclean_attest_no_key_warned" ]; then
+            echo "eclean-githooks: WARNING: no signing key configured; skipping attestation for this commit (run scripts/eclean-attest-setup)" >&2
+            : >"$gitdir_local/eclean_attest_no_key_warned"
+          fi
+        else
+          echo "eclean-githooks: verify failed ($cmd); commit blocked" >&2
+          printf '%s\n' "$out" | tail -n 40 >&2
+          exit 1
+        fi
+      fi
+    fi
+  fi
+fi
+
+if [ "$name" = post-commit ]; then
+  top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  gitdir_local="$(git rev-parse --git-dir 2>/dev/null || true)"
+  if [ -n "$top" ] && [ -n "$gitdir_local" ] && [ -f "$gitdir_local/ECLEAN_ATTEST_PENDING" ]; then
+    cd "$top" || exit 0
+    tree="" repo="" cmd="" key="" push=1
+    # shellcheck disable=SC1090,SC1091
+    . "$gitdir_local/ECLEAN_ATTEST_PENDING"
+    rm -f "$gitdir_local/ECLEAN_ATTEST_PENDING"
+    if [ -n "$tree" ] && [ "$(git rev-parse 'HEAD^{tree}' 2>/dev/null || true)" = "$tree" ]; then
+      lib="$self/eclean-attest-lib.sh"
+      [ -f "$lib" ] || lib="$self/../scripts/eclean-attest-lib.sh"
+      if [ -f "$lib" ]; then
+        # shellcheck source=/dev/null
+        . "$lib"
+        ea_write_note "$repo" "$cmd" "$key" "$push" >&2 || echo "eclean-githooks: attestation failed after commit" >&2
+      fi
+    fi
   fi
 fi
 

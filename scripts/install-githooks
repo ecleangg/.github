@@ -27,6 +27,8 @@ fi
 
 mkdir -p "$dest"
 cp "$src/dispatch" "$dest/dispatch"
+# The dispatcher's full verify/attestation step sources this next to itself.
+cp "$src/../scripts/eclean-attest-lib.sh" "$dest/eclean-attest-lib.sh"
 # One stub per standard client hook, so the global path never hides a repo's .git/hooks/<name>.
 for h in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg \
   commit-msg post-commit pre-rebase post-checkout post-merge pre-push pre-auto-gc post-rewrite \

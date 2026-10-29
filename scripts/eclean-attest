@@ -31,28 +31,22 @@ cd "$(git rev-parse --show-toplevel)"
 [ -z "$(git status --porcelain)" ] || die "the working tree is dirty (staged, unstaged or untracked changes); commit or stash first"
 
 if [ -z "$repo" ]; then
-  url="$(git remote get-url origin 2>/dev/null)" || die "no origin remote; pass --repo owner/name"
-  repo="$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')"
+  repo="$(ea_resolve_repo)" || die "no origin remote; pass --repo owner/name"
 fi
 case "$repo" in */*) ;; *) die "cannot derive owner/name from the origin remote; pass --repo" ;; esac
 
 if [ -z "$key" ]; then
-  [ "$(git config --get gpg.format || true)" = "ssh" ] || die "gpg.format is not ssh; run eclean-attest-setup or pass --key"
-  key="$(git config --get user.signingkey || true)"
-  [ -n "$key" ] || die "user.signingkey is not set; run eclean-attest-setup or pass --key"
+  key="$(ea_resolve_key)" || die "gpg.format is not ssh or user.signingkey is not set; run eclean-attest-setup or pass --key"
+else
+  case "$key" in "~/"*) key="$HOME/${key#"~/"}" ;; esac
 fi
-case "$key" in "~/"*) key="$HOME/${key#"~/"}" ;; esac
 [ -e "$key" ] || die "signing key not found: $key"
 
 attester="$(git config --get user.email || true)"
 [ -n "$attester" ] || die "git user.email is not set"
 
 if [ -z "$cmd" ]; then
-  if [ -f package.json ] && grep -q '"verify"[[:space:]]*:' package.json; then cmd="bun run verify"
-  elif [ -f Cargo.toml ] && [ -d xtask ]; then cmd="cargo xtask verify"
-  elif [ -f Makefile ] && grep -q '^verify:' Makefile; then cmd="make verify"
-  else die "no verify command found (bun run verify, cargo xtask verify, make verify); pass --cmd"
-  fi
+  cmd="$(ea_detect_verify_cmd)" || die "no verify command found (bun run verify, cargo xtask verify, make verify); pass --cmd"
 fi
 
 echo "eclean-attest: running: $cmd" >&2
@@ -61,39 +55,4 @@ bash -c "$cmd" || die "verify failed; nothing attested"
 # The command may have rewritten files (formatters); an attestation for a changed tree is meaningless.
 [ -z "$(git status --porcelain)" ] || die "verify modified the working tree; commit the result and run again"
 
-clean() { printf '%s' "$1" | tr -d '"' | tr -d '\\' | tr -d '\000-\037' | cut -c1-200; }
-tools=""
-sep=""
-for t in bun node rustc go uv; do
-  command -v "$t" >/dev/null 2>&1 || continue
-  if [ "$t" = go ]; then v="$(go version 2>&1 | head -n 1)" || true; else v="$("$t" --version 2>&1 | head -n 1)" || true; fi
-  tools="$tools$sep\"$t\":\"$(clean "$v")\""
-  sep=","
-done
-
-now="$(date -u +%s)"
-stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-commit="$(git rev-parse HEAD)"
-tree="$(git rev-parse 'HEAD^{tree}')"
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-printf '{"v":1,"repo":"%s","commit":"%s","tree":"%s","cmd":"%s","files":%s,"tools":{%s},"epoch":%s,"time":"%s","attester":"%s"}\n' \
-  "$(clean "$repo")" "$commit" "$tree" "$(clean "$cmd")" "$(ea_files_json HEAD)" "$tools" "$now" "$stamp" "$(clean "$attester")" >"$tmp/payload"
-
-ssh-keygen -Y sign -n "$EA_NAMESPACE" -f "$key" "$tmp/payload" >/dev/null || die "signing failed"
-cat "$tmp/payload" "$tmp/payload.sig" >"$tmp/note"
-
-# Merge notes other developers pushed first so the push is a fast-forward.
-if [ "$push" = 1 ] && git fetch -q origin "+$EA_NOTES_REF:refs/eclean-tmp/notes" 2>/dev/null; then
-  if git rev-parse -q --verify "$EA_NOTES_REF" >/dev/null; then
-    git notes --ref="$EA_NOTES_REF" merge -s ours refs/eclean-tmp/notes >/dev/null 2>&1 || true
-  else
-    git update-ref "$EA_NOTES_REF" refs/eclean-tmp/notes
-  fi
-  git update-ref -d refs/eclean-tmp/notes
-fi
-git notes --ref="$EA_NOTES_REF" add -f -F "$tmp/note" HEAD
-if [ "$push" = 1 ]; then
-  git push -q origin "$EA_NOTES_REF" || die "could not push $EA_NOTES_REF (note kept locally)"
-fi
-echo "eclean-attest: attested ${commit:0:12} (tree ${tree:0:12}) as $attester"
+ea_write_note "$repo" "$cmd" "$key" "$push" || exit 1
