@@ -1,0 +1,11 @@
+{
+  "name": "signed-commits-public",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] },
+    "repository_name": { "include": [".github", "mta-sts"], "exclude": [] }
+  },
+  "rules": [{ "type": "required_signatures" }]
+}
