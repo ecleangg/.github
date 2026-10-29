@@ -90,9 +90,11 @@ jobs:
       blocking: ${{ steps.gate.outputs.blocking }}
     env:
       ACTIONLINT_VERSION: 1.7.12
-      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      ACTIONLINT_SHA256_AMD64: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      ACTIONLINT_SHA256_ARM64: 325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
       ZIZMOR_VERSION: 1.31.1
-      ZIZMOR_SHA256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
+      ZIZMOR_SHA256_AMD64: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
+      ZIZMOR_SHA256_ARM64: 37eebbd5762a44f262d94875431b14a6d2402991e90a685113ea97b8b41be833
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,14 +105,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-actionlint" "$RUNNER_TEMP/dl-zizmor"
+          # The runner's arch (see runs-on above) can be ARM; the release archive and
+          # its pinned checksum must match the runner's arch or the binary fails to exec.
+          case "$RUNNER_ARCH" in
+            X64) alint_arch=amd64; alint_sha256="$ACTIONLINT_SHA256_AMD64"; zizmor_target=x86_64-unknown-linux-gnu; zizmor_sha256="$ZIZMOR_SHA256_AMD64" ;;
+            ARM64) alint_arch=arm64; alint_sha256="$ACTIONLINT_SHA256_ARM64"; zizmor_target=aarch64-unknown-linux-gnu; zizmor_sha256="$ZIZMOR_SHA256_ARM64" ;;
+            *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${alint_arch}.tar.gz"
+          echo "${alint_sha256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/dl-actionlint" actionlint
           install -m 0755 "$RUNNER_TEMP/dl-actionlint/actionlint" "$RUNNER_TEMP/bin/actionlint"
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/zizmor.tgz" \
-            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
-          echo "${ZIZMOR_SHA256}  $RUNNER_TEMP/zizmor.tgz" | sha256sum -c -
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-${zizmor_target}.tar.gz"
+          echo "${zizmor_sha256}  $RUNNER_TEMP/zizmor.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/zizmor.tgz" -C "$RUNNER_TEMP/dl-zizmor"
           install -m 0755 "$RUNNER_TEMP/dl-zizmor/zizmor" "$RUNNER_TEMP/bin/zizmor"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -208,7 +217,8 @@ jobs:
       blocking: ${{ steps.scan.outputs.blocking }}
     env:
       TRUFFLEHOG_VERSION: 3.99.7
-      TRUFFLEHOG_SHA256: bdbea0508e439b144f49de14e775908de5f902f3d14ea7ae8354bae72b0b72ef
+      TRUFFLEHOG_SHA256_AMD64: bdbea0508e439b144f49de14e775908de5f902f3d14ea7ae8354bae72b0b72ef
+      TRUFFLEHOG_SHA256_ARM64: 3060f7c9f18c70afdc432984cacabdd1e9103729b5d5fee7fb6755a90d1c59d4
     steps:
       - name: Check out the full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -220,9 +230,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-trufflehog"
+          # The runner's arch (see runs-on above) can be ARM; the release archive and
+          # its pinned checksum must match the runner's arch or the binary fails to exec.
+          case "$RUNNER_ARCH" in
+            X64) arch=amd64; sha256="$TRUFFLEHOG_SHA256_AMD64" ;;
+            ARM64) arch=arm64; sha256="$TRUFFLEHOG_SHA256_ARM64" ;;
+            *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/trufflehog.tgz" \
-            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
-          echo "${TRUFFLEHOG_SHA256}  $RUNNER_TEMP/trufflehog.tgz" | sha256sum -c -
+            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_${arch}.tar.gz"
+          echo "${sha256}  $RUNNER_TEMP/trufflehog.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/trufflehog.tgz" -C "$RUNNER_TEMP/dl-trufflehog" trufflehog
           install -m 0755 "$RUNNER_TEMP/dl-trufflehog/trufflehog" "$RUNNER_TEMP/bin/trufflehog"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -292,7 +309,8 @@ jobs:
       blocking: ${{ steps.gate.outputs.blocking }}
     env:
       OSV_VERSION: 2.7.0
-      OSV_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+      OSV_SHA256_AMD64: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+      OSV_SHA256_ARM64: 4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -304,9 +322,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
+          # The runner's arch (see runs-on above) can be ARM; the release binary and
+          # its pinned checksum must match the runner's arch or the binary fails to exec.
+          case "$RUNNER_ARCH" in
+            X64) arch=amd64; sha256="$OSV_SHA256_AMD64" ;;
+            ARM64) arch=arm64; sha256="$OSV_SHA256_ARM64" ;;
+            *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/osv-scanner" \
-            "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64"
-          echo "${OSV_SHA256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_${arch}"
+          echo "${sha256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
           install -m 0755 "$RUNNER_TEMP/osv-scanner" "$RUNNER_TEMP/bin/osv-scanner"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
@@ -437,7 +462,8 @@ jobs:
       blocking: ${{ steps.gate.outputs.blocking }}
     env:
       OPENGREP_VERSION: 1.33.1
-      OPENGREP_SHA256: 46e8133cc490f9f50518061590ce2f6be5a08afaeda034471c0ceda4b3899808
+      OPENGREP_SHA256_AMD64: 46e8133cc490f9f50518061590ce2f6be5a08afaeda034471c0ceda4b3899808
+      OPENGREP_SHA256_ARM64: d1433f63a90b8bc0b6ad4b498a13b372b856ce9a754a43484ba4920fe2d76dcf
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -459,9 +485,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
+          # The runner's arch (see runs-on above) can be ARM. Opengrep genuinely publishes
+          # a linux-arm64 release asset (opengrep_manylinux_aarch64), unlike some of the
+          # other scanners here, so this branches the same way rather than failing.
+          case "$RUNNER_ARCH" in
+            X64) ogrep_asset=opengrep_manylinux_x86; sha256="$OPENGREP_SHA256_AMD64" ;;
+            ARM64) ogrep_asset=opengrep_manylinux_aarch64; sha256="$OPENGREP_SHA256_ARM64" ;;
+            *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/opengrep" \
-            "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/opengrep_manylinux_x86"
-          echo "${OPENGREP_SHA256}  $RUNNER_TEMP/opengrep" | sha256sum -c -
+            "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${ogrep_asset}"
+          echo "${sha256}  $RUNNER_TEMP/opengrep" | sha256sum -c -
           install -m 0755 "$RUNNER_TEMP/opengrep" "$RUNNER_TEMP/bin/opengrep"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
@@ -591,7 +625,8 @@ jobs:
       blocking: ${{ steps.gate.outputs.blocking }}
     env:
       TRIVY_VERSION: 0.76.1
-      TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+      TRIVY_SHA256_AMD64: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+      TRIVY_SHA256_ARM64: e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -604,9 +639,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-trivy"
+          # The runner's arch (see runs-on above) can be ARM; the release archive and
+          # its pinned checksum must match the runner's arch or the binary fails to exec.
+          case "$RUNNER_ARCH" in
+            X64) trivy_arch=64bit; sha256="$TRIVY_SHA256_AMD64" ;;
+            ARM64) trivy_arch=ARM64; sha256="$TRIVY_SHA256_ARM64" ;;
+            *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          echo "${TRIVY_SHA256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${trivy_arch}.tar.gz"
+          echo "${sha256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP/dl-trivy" trivy
           install -m 0755 "$RUNNER_TEMP/dl-trivy/trivy" "$RUNNER_TEMP/bin/trivy"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
