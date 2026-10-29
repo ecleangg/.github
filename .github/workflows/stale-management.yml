@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: stale-management
+  cancel-in-progress: false
+
 jobs:
   stale:
     permissions:
