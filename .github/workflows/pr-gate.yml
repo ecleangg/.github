@@ -1,0 +1,79 @@
+# Draft and attestation gate for a repo's CI. Call it first and condition the heavy jobs on its
+# outputs; see docs/local-first.md for the caller pattern.
+#   run-full     true unless the event is a draft pull request
+#   skip-verify  true for a non-draft pull request whose head tree carries a valid attestation
+#   draft        true for a draft pull request
+name: PR gate
+
+on:
+  workflow_call:
+    inputs:
+      max-age-days:
+        description: "Attestations older than this many days are ignored"
+        type: string
+        default: "7"
+      allowed-signers-source:
+        description: "owner/repo@ref (or a file path) of the allowed_signers file"
+        type: string
+        default: ecleangg/.github@main
+      command-hint:
+        description: "Command shown in the summary when no attestation applies"
+        type: string
+        default: eclean-attest
+    outputs:
+      run-full:
+        description: "true unless the event is a draft pull request"
+        value: ${{ jobs.gate.outputs.run-full }}
+      skip-verify:
+        description: "true when a valid attestation lets CI skip lint, format, typecheck and tests"
+        value: ${{ jobs.gate.outputs.skip-verify }}
+      draft:
+        description: "true for a draft pull request"
+        value: ${{ jobs.gate.outputs.draft }}
+
+permissions: {}
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run-full: ${{ steps.decide.outputs.run-full }}
+      skip-verify: ${{ steps.final.outputs.skip-verify }}
+      draft: ${{ steps.decide.outputs.draft }}
+    steps:
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          draft=false
+          if [ "$EVENT" = pull_request ] && [ "$IS_DRAFT" = true ]; then draft=true; fi
+          {
+            echo "draft=$draft"
+            if [ "$draft" = true ]; then echo "run-full=false"; else echo "run-full=true"; fi
+          } >> "$GITHUB_OUTPUT"
+          if [ "$draft" = true ]; then echo "Draft pull request: only the cheap checks run." >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Check out the pull request head
+        if: ${{ github.event_name == 'pull_request' && steps.decide.outputs.run-full == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify attestation
+        id: attest
+        if: ${{ github.event_name == 'pull_request' && steps.decide.outputs.run-full == 'true' }}
+        uses: ecleangg/.github/.github/actions/verify-attestation@3099d6eaa2d5697edc68973d613ea5f0c7100c0a # main
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          max-age-days: ${{ inputs.max-age-days }}
+          allowed-signers-source: ${{ inputs.allowed-signers-source }}
+          command-hint: ${{ inputs.command-hint }}
+      - id: final
+        env:
+          VALID: ${{ steps.attest.outputs.valid }}
+        run: |
+          if [ "$VALID" = true ]; then echo "skip-verify=true" >> "$GITHUB_OUTPUT"; else echo "skip-verify=false" >> "$GITHUB_OUTPUT"; fi
