@@ -8,44 +8,62 @@
     "docker:pinDigests"
   ],
   "dependencyDashboard": false,
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "semanticCommits": "enabled",
   "semanticCommitType": "chore",
   "semanticCommitScope": "deps",
-  "schedule": ["before 6am on monday"],
+  "schedule": [
+    "before 6am on monday"
+  ],
   "timezone": "Europe/Stockholm",
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
   "prConcurrentLimit": 5,
   "prHourlyLimit": 5,
-  "vulnerabilityAlerts": { "labels": ["dependencies", "security"], "minimumReleaseAge": null, "schedule": ["at any time"] },
-  "lockFileMaintenance": { "enabled": true, "schedule": ["before 6am on the first day of the month"] },
+  "vulnerabilityAlerts": {
+    "labels": [
+      "dependencies",
+      "security"
+    ],
+    "minimumReleaseAge": null,
+    "schedule": [
+      "at any time"
+    ]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on the first day of the month"
+    ]
+  },
   "packageRules": [
     {
       "description": "Majors get their own PR per package, except GitHub Actions which move together",
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["major"],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "groupName": "github actions (major)"
     },
     {
       "description": "Rust toolchain stays pinned and moves by hand with the Dockerfile RUST_VERSION",
-      "matchManagers": ["rust-toolchain"],
+      "matchManagers": [
+        "rust-toolchain"
+      ],
       "rangeStrategy": "pin"
     }
   ],
   "customManagers": [
     {
-      "description": "Version pins annotated with '# renovate: datasource=... depName=...' above 'x_version: \"1.2.3\"' (Ansible defaults and vars)",
-      "customType": "regex",
-      "managerFilePatterns": ["/(^|/)roles/.+/(defaults|vars)/.+\\.ya?ml$/", "/(^|/)group_vars/.+\\.ya?ml$/"],
-      "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*\\n\\s*\\w+:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
-      ]
-    },
-    {
       "description": "Image vars 'x_image: registry/repo:tag@sha256:...' in Ansible defaults",
       "customType": "regex",
-      "managerFilePatterns": ["/(^|/)roles/.+/(defaults|vars)/.+\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/(^|/)roles/.+/(defaults|vars)/.+\\.ya?ml$/"
+      ],
       "matchStrings": [
         "\\w+_image:\\s*[\"']?(?<depName>[^:\\s\"']+):(?<currentValue>[^@\\s\"']+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
