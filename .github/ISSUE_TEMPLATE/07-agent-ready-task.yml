@@ -1,0 +1,50 @@
+name: Agent-ready task
+description: Create a fully specified task that an AFK coding agent can pick up.
+title: "[AGENT] "
+labels: ["ready-for-agent"]
+projects: ["ecleangg/7", "ecleangg/9"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template only when the issue is already scoped tightly enough for an agent to implement without extra product context.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: State the exact outcome the agent should produce.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include relevant links, decisions, constraints, and prior discussion.
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation notes
+      description: Point at likely files, modules, commands, or patterns. Call out anything the agent must avoid changing.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - the repo's check and test commands
+        - ...
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Required validation
+      description: List required automated checks and any manual verification.
+      placeholder: |
+        - the repo's check and test commands
+    validations:
+      required: true
