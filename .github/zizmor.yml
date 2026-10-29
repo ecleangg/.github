@@ -1,0 +1,13 @@
+# zizmor's own config; it reads this file itself (see security.yml).
+rules:
+  self-repository:
+    ignore:
+      # $/ self-repository syntax (github.blog/changelog/2026-07-30) is real and preferred, but
+      # the actionlint version pinned in security.yml (1.7.12) does not parse it yet and rejects
+      # it as an invalid uses: format, which the shared workflow treats as a blocking error.
+      # Revisit once a newer actionlint recognizes $/, then switch these ./ references over and
+      # drop this ignore.
+      - delete-runs-scheduled.yml
+      - find-secrets.yml
+      - selftest.yml
+      - stale-management.yml
