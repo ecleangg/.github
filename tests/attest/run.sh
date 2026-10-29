@@ -19,7 +19,13 @@ fails=0
 ok() { echo "ok   - $1"; }
 bad() { echo "FAIL - $1"; fails=$((fails + 1)); }
 expect() { # expect <label> <expected valid> <output>
-  if printf '%s\n' "$3" | grep -qx "valid=$2"; then ok "$1"; else bad "$1 ($(printf '%s' "$3" | tr '\n' ' '))"; fi
+  # Pure-bash line match, not `printf | grep -q`: grep -q exits as soon as it finds a
+  # match, which can SIGPIPE a still-writing printf; under `set -o pipefail` that flips
+  # the whole pipeline's exit status to nonzero even when grep genuinely matched.
+  case $'\n'"$3"$'\n' in
+    *$'\n'"valid=$2"$'\n'*) ok "$1" ;;
+    *) bad "$1 ($(printf '%s' "$3" | tr '\n' ' '))" ;;
+  esac
 }
 
 ssh-keygen -q -t ed25519 -N "" -C dev -f "$t/key1"
