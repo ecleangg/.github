@@ -129,25 +129,6 @@ jobs:
 Inputs: `image` (required), `ignore-file` (default `.trivyignore`, read from the caller's repo),
 `runs-on` (default `ubuntu-slim`).
 
-### `stale.yml` and `delete-runs.yml`
-
-```yaml
-jobs:
-  stale:
-    permissions:
-      actions: write
-      issues: write
-      pull-requests: write
-    uses: ecleangg/.github/.github/workflows/stale.yml@<sha> # <ref>
-  delete-runs:
-    permissions:
-      actions: write
-      contents: read
-    uses: ecleangg/.github/.github/workflows/delete-runs.yml@<sha> # <ref>
-```
-
-Neither takes inputs. This repo calls them from `stale-management.yml` and `delete-runs-scheduled.yml`.
-
 ## Composite actions
 
 All three are used as `uses: ecleangg/.github/.github/actions/<name>@<sha> # <ref>`.
