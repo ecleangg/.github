@@ -11,4 +11,4 @@ repo:
   has_issues: true
   has_discussions: true
   has_wiki: false
-  has_projects: false
+  has_projects: true
