@@ -1,0 +1,11 @@
+# Planted findings for the self-test: an undefined context property (actionlint) and an issue title
+# in a shell command (zizmor template-injection, high). Never fix this file.
+name: bad
+on: issues
+permissions: {}
+jobs:
+  hello:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "${{ github.issue.title }}"
+      - run: echo "${{ github.event.issue.title }}"

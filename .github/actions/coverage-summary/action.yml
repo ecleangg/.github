@@ -1,0 +1,117 @@
+name: Coverage summary
+description: >-
+  Reports coverage in the job summary and, on pull requests, as a sticky comment: totals, the delta
+  against the latest run on the default branch, the 10 lowest-covered files and a collapsed full
+  table. Report only. On a push to the default branch it uploads the baseline artifact
+  `coverage-<name>`. The caller needs `actions: read` (baseline download) and, for the comment,
+  `pull-requests: write`. The baseline upload needs no extra permission.
+
+inputs:
+  name:
+    description: "Short name of this coverage report, e.g. `api` or `web`. Letters, digits, `.`, `_`, `-`. Keys the comment header and the baseline artifact."
+    required: true
+  format:
+    description: "`lcov` (cargo llvm-cov --lcov, vitest lcov), `go` (go test -coverprofile) or `vitest-json` (vitest json-summary)."
+    required: true
+  file:
+    description: "Path to the coverage file."
+    required: true
+  baseline-artifact:
+    description: "Name of the baseline artifact. Defaults to `coverage-<name>`."
+    required: false
+    default: ""
+  fail-on-error:
+    description: "Fail the step when the file cannot be parsed. Missing baselines never fail."
+    required: false
+    default: "false"
+  comment:
+    description: "Post the sticky pull request comment (needs pull-requests: write; fork pull requests cannot)."
+    required: false
+    default: "true"
+  github-token:
+    description: "Token to list and download the baseline (actions: read) and to comment (pull-requests: write)."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  line-percent:
+    description: "Total line (Go: statement) coverage in percent, empty if it could not be computed."
+    value: ${{ steps.report.outputs.line-percent }}
+  branch-percent:
+    description: "Total branch coverage in percent, empty if there is none."
+    value: ${{ steps.report.outputs.branch-percent }}
+  report-file:
+    description: "Path of the markdown report."
+    value: ${{ steps.report.outputs.report-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate the name
+      shell: bash
+      env:
+        COVERAGE_NAME: ${{ inputs.name }}
+      run: |
+        case "$COVERAGE_NAME" in
+          ''|*[!A-Za-z0-9._-]*) echo "::error::name must be letters, digits, '.', '_' or '-'"; exit 1 ;;
+        esac
+
+    - name: Find the baseline from the default branch
+      id: baseline
+      if: ${{ github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        ARTIFACT: ${{ inputs.baseline-artifact || format('coverage-{0}', inputs.name) }}
+        DEST: ${{ runner.temp }}/coverage-baseline
+      run: |
+        set +e -uo pipefail
+        mkdir -p "$DEST"
+        note=""
+        # The latest unexpired artifact of that name that a run on the default branch uploaded;
+        # the upload step only runs after a successful run.
+        run_id="$(gh api "repos/$REPO/actions/artifacts?name=$ARTIFACT&per_page=100" \
+          --jq "[.artifacts[] | select(.expired == false and .workflow_run.head_branch == \"$DEFAULT_BRANCH\")] | first | .workflow_run.id // empty" 2>"$DEST/err")" || run_id=""
+        if [ -z "$run_id" ]; then
+          note="No baseline artifact \`$ARTIFACT\` from \`$DEFAULT_BRANCH\` yet (it is uploaded on pushes to \`$DEFAULT_BRANCH\`); no delta."
+          [ -s "$DEST/err" ] && echo "::warning title=coverage-summary::could not list artifacts: $(head -c 200 "$DEST/err")"
+        elif ! gh run download "$run_id" --repo "$REPO" --name "$ARTIFACT" --dir "$DEST" 2>"$DEST/err"; then
+          note="The baseline artifact \`$ARTIFACT\` could not be downloaded; no delta."
+          echo "::warning title=coverage-summary::download failed: $(head -c 200 "$DEST/err")"
+        fi
+        echo "dir=$DEST" >> "$GITHUB_OUTPUT"
+        printf 'note=%s\n' "$note" >> "$GITHUB_OUTPUT"
+
+    - name: Build the report
+      id: report
+      shell: bash
+      env:
+        COVERAGE_NAME: ${{ inputs.name }}
+        COVERAGE_FORMAT: ${{ inputs.format }}
+        COVERAGE_FILE: ${{ inputs.file }}
+        COVERAGE_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        COVERAGE_OUT_DIR: ${{ runner.temp }}/coverage-out
+        COVERAGE_BASELINE_DIR: ${{ steps.baseline.outputs.dir }}
+        COVERAGE_BASELINE_NOTE: ${{ steps.baseline.outputs.note }}
+      run: node "${{ github.action_path }}/report.js"
+
+    - name: Comment on the pull request
+      if: ${{ github.event_name == 'pull_request' && inputs.comment == 'true' }}
+      continue-on-error: true
+      uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+      with:
+        header: coverage-${{ inputs.name }}
+        path: ${{ steps.report.outputs.report-file }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    - name: Upload the baseline
+      if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.baseline-artifact || format('coverage-{0}', inputs.name) }}
+        path: ${{ runner.temp }}/coverage-out/${{ inputs.name }}/coverage-${{ inputs.name }}.json
+        retention-days: 30
+        overwrite: true
+        if-no-files-found: ignore

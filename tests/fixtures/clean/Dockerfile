@@ -1,0 +1,4 @@
+FROM alpine:3.22
+USER 10001
+HEALTHCHECK CMD true
+RUN echo hi

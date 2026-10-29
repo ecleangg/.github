@@ -1,0 +1,128 @@
+name: Trivy image scan
+description: >-
+  Scan a container image (registry reference or a docker-save tarball) for fixed HIGH and CRITICAL
+  vulnerabilities and for secrets. Findings go to the job summary. The ignore file is the baseline:
+  the step fails only on findings that are not in it. Needs no Docker daemon, so it runs on
+  ubuntu-slim for a tarball or a registry image.
+
+inputs:
+  image:
+    description: "Image reference to scan, pulled from its registry. Use this or `tarball`."
+    required: false
+    default: ""
+  tarball:
+    description: "Path to a `docker save` / OCI archive to scan. Use this or `image`."
+    required: false
+    default: ""
+  ignore-file:
+    description: "Path to a .trivyignore. Every entry needs a reason in a comment. A missing file means no ignores."
+    required: false
+    default: ".trivyignore"
+  fail:
+    description: "true: exit 1 on findings not in the ignore file. false: report only (use on schedule)."
+    required: false
+    default: "true"
+  severity:
+    description: "Severities that count."
+    required: false
+    default: "HIGH,CRITICAL"
+  registry-username:
+    description: "Registry user for a private image (for ghcr.io: the actor)."
+    required: false
+    default: ""
+  registry-password:
+    description: "Registry password or token for a private image (for ghcr.io: a token with packages: read)."
+    required: false
+    default: ""
+  title:
+    description: "Heading of the summary section."
+    required: false
+    default: ""
+
+outputs:
+  findings:
+    description: "Number of findings not covered by the ignore file."
+    value: ${{ steps.scan.outputs.findings }}
+  report-file:
+    description: "Path of the Trivy JSON report (findings already filtered by the ignore file)."
+    value: ${{ steps.scan.outputs.report-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Trivy
+      id: install
+      shell: bash
+      env:
+        TRIVY_VERSION: "0.76.1"
+        TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/trivy-bin" "$RUNNER_TEMP/trivy-dl"
+        curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" \
+          "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+        echo "${TRIVY_SHA256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
+        tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP/trivy-dl" trivy
+        install -m 0755 "$RUNNER_TEMP/trivy-dl/trivy" "$RUNNER_TEMP/trivy-bin/trivy"
+        echo "bin=$RUNNER_TEMP/trivy-bin/trivy" >> "$GITHUB_OUTPUT"
+        echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+    # The vulnerability DB comes from mirror.gcr.io, then ghcr.io (Trivy's default order). The cache
+    # keeps most runs off the registries' rate limits.
+    - name: Cache the Trivy databases
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/trivy-cache
+        key: trivy-db-${{ runner.os }}-${{ steps.install.outputs.day }}
+        restore-keys: trivy-db-${{ runner.os }}-
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        TARBALL: ${{ inputs.tarball }}
+        IGNORE_FILE: ${{ inputs.ignore-file }}
+        FAIL: ${{ inputs.fail }}
+        SEVERITY: ${{ inputs.severity }}
+        TITLE: ${{ inputs.title }}
+        TRIVY_USERNAME: ${{ inputs.registry-username }}
+        TRIVY_PASSWORD: ${{ inputs.registry-password }}
+        SUMMARIZE: ${{ github.action_path }}/summarize.js
+        TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        TRIVY_BIN: ${{ steps.install.outputs.bin }}
+      run: |
+        set +e -uo pipefail
+        if [ -n "$IMAGE" ] && [ -n "$TARBALL" ]; then echo "::error::Set image or tarball, not both"; exit 1; fi
+        if [ -z "$IMAGE" ] && [ -z "$TARBALL" ]; then echo "::error::Set image or tarball"; exit 1; fi
+        args=(image --scanners vuln,secret --severity "$SEVERITY" --ignore-unfixed --format json
+          --output "$RUNNER_TEMP/trivy-image.json")
+        ignore=""
+        if [ -n "$IGNORE_FILE" ] && [ -f "$IGNORE_FILE" ]; then
+          ignore="$IGNORE_FILE"
+          # Every entry needs a reason: a comment on the line above or after it.
+          if ! awk '
+            /^[[:space:]]*$/ { prev = ""; next }
+            /^[[:space:]]*#/ { prev = "c"; next }
+            { if (prev != "c" && $0 !~ /#/) { printf "::error file=%s,line=%d::Entry without a reason; add a comment above it\n", FILENAME, NR; bad = 1 } prev = "" }
+            END { exit bad }' "$ignore"; then exit 1; fi
+          args+=(--ignorefile "$ignore")
+        elif [ -n "$IGNORE_FILE" ]; then
+          # trivy rejects a missing --ignorefile; an empty one means no ignores.
+          : > "$RUNNER_TEMP/empty.trivyignore"
+          args+=(--ignorefile "$RUNNER_TEMP/empty.trivyignore")
+        fi
+        if [ -n "$TARBALL" ]; then args+=(--input "$TARBALL"); else args+=("$IMAGE"); fi
+        rc=0
+        for attempt in 1 2 3; do
+          "$TRIVY_BIN" "${args[@]}" > "$RUNNER_TEMP/trivy-image.log" 2>&1 && { rc=0; break; }
+          rc=$?
+          sleep $((attempt * 15))
+        done
+        if [ "$rc" -ne 0 ]; then
+          echo "::error title=Trivy::trivy image failed with exit code $rc"
+          tail -n 30 "$RUNNER_TEMP/trivy-image.log"
+          exit 1
+        fi
+        echo "report-file=$RUNNER_TEMP/trivy-image.json" >> "$GITHUB_OUTPUT"
+        TITLE="${TITLE:-${IMAGE:-$TARBALL}}" IGNORE="$ignore" node "$SUMMARIZE" "$RUNNER_TEMP/trivy-image.json"

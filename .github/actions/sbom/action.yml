@@ -1,0 +1,97 @@
+name: SBOM
+description: >-
+  Generates a CycloneDX JSON SBOM (Syft, via anchore/sbom-action) of a directory or an image,
+  uploads it as a workflow artifact and, with `release-tag`, attaches it to a GitHub release.
+  Scanning a directory works on ubuntu-slim; an image in the local Docker daemon needs ubuntu-24.04.
+  The caller needs `contents: write` only when it sets `release-tag`.
+
+inputs:
+  path:
+    description: "Directory to catalog. Use this or `image`."
+    required: false
+    default: ""
+  image:
+    description: "Image to catalog (a registry reference, or `docker:<ref>` for the local daemon). Use this or `path`."
+    required: false
+    default: ""
+  output-file:
+    description: "SBOM file to write, relative to the workspace."
+    required: false
+    default: "sbom.cdx.json"
+  artifact-name:
+    description: "Name of the uploaded workflow artifact."
+    required: false
+    default: "sbom"
+  upload-artifact:
+    description: "Upload the SBOM as a workflow artifact."
+    required: false
+    default: "true"
+  release-tag:
+    description: "Attach the SBOM to the GitHub release with this tag. The release must exist. Empty: do not attach."
+    required: false
+    default: ""
+  github-token:
+    description: "Token for the release upload (contents: write)."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  sbom-file:
+    description: "Path of the SBOM file."
+    value: ${{ inputs.output-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the inputs
+      shell: bash
+      env:
+        SBOM_PATH: ${{ inputs.path }}
+        SBOM_IMAGE: ${{ inputs.image }}
+      run: |
+        if { [ -n "$SBOM_PATH" ] && [ -n "$SBOM_IMAGE" ]; } || { [ -z "$SBOM_PATH" ] && [ -z "$SBOM_IMAGE" ]; }; then
+          echo "::error::Set exactly one of path and image"
+          exit 1
+        fi
+
+    - name: Generate the SBOM
+      uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      with:
+        path: ${{ inputs.path }}
+        image: ${{ inputs.image }}
+        format: cyclonedx-json
+        output-file: ${{ inputs.output-file }}
+        upload-artifact: false
+        upload-release-assets: false
+        dependency-snapshot: false
+
+    - name: Upload the SBOM
+      if: ${{ inputs.upload-artifact == 'true' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.output-file }}
+        retention-days: 30
+        overwrite: true
+
+    - name: Attach the SBOM to the release
+      if: ${{ inputs.release-tag != '' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ inputs.release-tag }}
+        SBOM_FILE: ${{ inputs.output-file }}
+      run: gh release upload "$TAG" "$SBOM_FILE" --repo "$REPO" --clobber
+
+    - name: Summarize
+      shell: bash
+      env:
+        SBOM_FILE: ${{ inputs.output-file }}
+      run: |
+        components="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log((j.components||[]).length)' "$SBOM_FILE")"
+        {
+          echo "## SBOM"
+          echo
+          echo "\`$SBOM_FILE\`: CycloneDX, $components components."
+        } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,724 @@
+# Shared security checks for the ecleangg org. Call it from a repo's own workflow; see
+# docs/ci-standard.md for the contract, the blocking policy and copy-paste callers.
+#
+# Policy: a pull request fails on a finding it introduces (the pull request base is the baseline),
+# never on the backlog. `schedule` runs list the whole backlog in the job summary and never fail.
+# Nothing is uploaded to code scanning (not available for private repos on the Free plan): every
+# job writes a markdown table to the job summary and its exit code gates the pull request.
+name: Security
+
+on:
+  workflow_call:
+    inputs:
+      workflows:
+        description: "actionlint and zizmor over .github/workflows and .github/actions"
+        type: boolean
+        default: true
+      secrets:
+        description: "TruffleHog, verified secrets only"
+        type: boolean
+        default: true
+      osv:
+        description: "OSV-Scanner over lockfiles; only for ecosystems without a native audit"
+        type: boolean
+        default: false
+      opengrep:
+        description: "Opengrep SAST with the Semgrep TypeScript and JavaScript security rules"
+        type: boolean
+        default: false
+      trivy-config:
+        description: "Trivy misconfiguration scan of Dockerfiles"
+        type: boolean
+        default: false
+      runs-on:
+        description: "Runner label for every job; raise it if a job outgrows ubuntu-slim (15 minute limit)"
+        type: string
+        default: ubuntu-slim
+      path:
+        description: "Directory to scan, relative to the repository root (osv, opengrep, trivy-config, workflows)"
+        type: string
+        default: "."
+      exclude:
+        description: "Newline-separated directories, relative to `path`, that osv, opengrep and trivy-config skip"
+        type: string
+        default: ""
+      baseline:
+        description: "Block only on findings the change introduces (diff against the pull request base). false: every finding blocks"
+        type: boolean
+        default: true
+      report-only:
+        description: "Report findings in the summary but never fail the job"
+        type: boolean
+        default: false
+      concurrency-key:
+        description: "Suffix for the concurrency group, for callers that call this workflow more than once"
+        type: string
+        default: ""
+    outputs:
+      workflows-blocking:
+        description: "Number of blocking findings in the workflows job"
+        value: ${{ jobs.workflows.outputs.blocking }}
+      secrets-blocking:
+        description: "Number of blocking findings in the secrets job"
+        value: ${{ jobs.secrets.outputs.blocking }}
+      osv-blocking:
+        description: "Number of blocking findings in the osv job"
+        value: ${{ jobs.osv.outputs.blocking }}
+      opengrep-blocking:
+        description: "Number of blocking findings in the opengrep job"
+        value: ${{ jobs.opengrep.outputs.blocking }}
+      trivy-config-blocking:
+        description: "Number of blocking findings in the trivy-config job"
+        value: ${{ jobs.trivy-config.outputs.blocking }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}-${{ inputs.concurrency-key }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  workflows:
+    name: Workflows (actionlint, zizmor)
+    if: ${{ inputs.workflows }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      blocking: ${{ steps.gate.outputs.blocking }}
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      ZIZMOR_VERSION: 1.31.1
+      ZIZMOR_SHA256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint and zizmor
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-actionlint" "$RUNNER_TEMP/dl-zizmor"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/dl-actionlint" actionlint
+          install -m 0755 "$RUNNER_TEMP/dl-actionlint/actionlint" "$RUNNER_TEMP/bin/actionlint"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/zizmor.tgz" \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ZIZMOR_SHA256}  $RUNNER_TEMP/zizmor.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/zizmor.tgz" -C "$RUNNER_TEMP/dl-zizmor"
+          install -m 0755 "$RUNNER_TEMP/dl-zizmor/zizmor" "$RUNNER_TEMP/bin/zizmor"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Run actionlint and zizmor
+        id: run
+        env:
+          SCAN_PATH: ${{ inputs.path }}
+        run: |
+          set +e -uo pipefail
+          cd "$SCAN_PATH"
+          echo '[]' > "$RUNNER_TEMP/actionlint.json"
+          echo '[]' > "$RUNNER_TEMP/zizmor.json"
+          if [ ! -d .github ]; then
+            echo "No .github directory under $SCAN_PATH; nothing to lint."
+            echo "applicable=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "applicable=true" >> "$GITHUB_OUTPUT"
+          # -no-color keeps the log free of escape codes; the JSON feeds the summary table.
+          mapfile -t files < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | sort)
+          if [ "${#files[@]}" -gt 0 ]; then
+            actionlint -no-color -format '{{json .}}' "${files[@]}" > "$RUNNER_TEMP/actionlint.json"
+            echo "actionlint exit code $?"
+          fi
+          # zizmor reads .github/zizmor.yml itself. --no-online-audits keeps it offline, so it needs
+          # no token. --no-exit-codes: a finding is not a tool error; the gate step decides.
+          zizmor --no-online-audits --no-exit-codes --format=json .github > "$RUNNER_TEMP/zizmor.json" 2> "$RUNNER_TEMP/zizmor.err"
+          zrc=$?
+          if [ "$zrc" -ne 0 ]; then
+            echo "::error title=zizmor::zizmor failed with exit code $zrc"
+            cat "$RUNNER_TEMP/zizmor.err"
+            exit 1
+          fi
+
+      - name: Summarize and gate
+        id: gate
+        if: ${{ !cancelled() && steps.run.outputs.applicable == 'true' }}
+        env:
+          EVENT: ${{ github.event_name }}
+          REPORT_ONLY: ${{ inputs.report-only }}
+          SCAN_PATH: ${{ inputs.path }}
+        run: |
+          cat > "$RUNNER_TEMP/gate.js" <<'EOF'
+          const fs = require("fs");
+          const tmp = process.env.RUNNER_TEMP;
+          const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 300);
+          const al = JSON.parse(fs.readFileSync(`${tmp}/actionlint.json`, "utf8") || "[]") || [];
+          const zz = JSON.parse(fs.readFileSync(`${tmp}/zizmor.json`, "utf8") || "[]") || [];
+          const order = { Critical: 5, High: 4, Medium: 3, Low: 2, Informational: 1, Unknown: 0 };
+          const zf = zz.map((f) => {
+            const loc = f.locations.find((l) => l.symbolic.kind === "Primary") || f.locations[0];
+            return {
+              sev: f.determinations.severity,
+              rule: f.ident,
+              file: loc.symbolic.key.Local?.verbatim_path ?? "remote",
+              line: loc.concrete.location.start_point.row + 1,
+              note: `${f.desc}: ${loc.symbolic.annotation}`,
+              url: f.url,
+            };
+          }).sort((a, b) => (order[b.sev] ?? 0) - (order[a.sev] ?? 0));
+          const zBlocking = zf.filter((f) => (order[f.sev] ?? 0) >= order.High);
+          const blocking = al.length + zBlocking.length;
+          let md = "## Workflows: actionlint and zizmor\n\n";
+          md += `Blocking: **${blocking}** (every actionlint error, every zizmor finding of severity high or above).\n\n`;
+          md += `### actionlint (${al.length})\n\n`;
+          if (al.length) {
+            md += "| File | Line | Check | Message |\n| --- | --- | --- | --- |\n";
+            for (const e of al) md += `| ${esc(e.filepath)} | ${e.line} | ${esc(e.kind)} | ${esc(e.message)} |\n`;
+          } else md += "No errors.\n";
+          md += `\n### zizmor (${zf.length}, ${zBlocking.length} blocking)\n\n`;
+          if (zf.length) {
+            md += "| Severity | Rule | File | Line | Detail |\n| --- | --- | --- | --- | --- |\n";
+            for (const f of zf) md += `| ${f.sev}${(order[f.sev] ?? 0) >= order.High ? " (blocks)" : ""} | [${f.rule}](${f.url}) | ${esc(f.file)} | ${f.line} | ${esc(f.note)} |\n`;
+          } else md += "No findings.\n";
+          md += "\nSuppress a zizmor finding with `# zizmor: ignore[rule] reason` on the line, or in `.github/zizmor.yml`; give a reason.\n";
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `blocking=${blocking}\n`);
+          for (const e of al) console.log(`::error file=${e.filepath},line=${e.line}::actionlint ${e.kind}: ${String(e.message).slice(0, 200)}`);
+          for (const f of zBlocking) console.log(`::error file=${f.file},line=${f.line}::zizmor ${f.rule}: ${f.note}`);
+          const enforce = process.env.EVENT !== "schedule" && process.env.REPORT_ONLY !== "true";
+          if (blocking > 0 && enforce) process.exitCode = 1;
+          EOF
+          cd "$SCAN_PATH"
+          node "$RUNNER_TEMP/gate.js"
+
+  secrets:
+    name: Secrets (TruffleHog)
+    if: ${{ inputs.secrets }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 14
+    permissions:
+      contents: read
+    outputs:
+      blocking: ${{ steps.scan.outputs.blocking }}
+    env:
+      TRUFFLEHOG_VERSION: 3.99.7
+      TRUFFLEHOG_SHA256: bdbea0508e439b144f49de14e775908de5f902f3d14ea7ae8354bae72b0b72ef
+    steps:
+      - name: Check out the full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install TruffleHog
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-trufflehog"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/trufflehog.tgz" \
+            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
+          echo "${TRUFFLEHOG_SHA256}  $RUNNER_TEMP/trufflehog.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/trufflehog.tgz" -C "$RUNNER_TEMP/dl-trufflehog" trufflehog
+          install -m 0755 "$RUNNER_TEMP/dl-trufflehog/trufflehog" "$RUNNER_TEMP/bin/trufflehog"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Scan
+        id: scan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          REPORT_ONLY: ${{ inputs.report-only }}
+        run: |
+          set +e -uo pipefail
+          since=""
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            since="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            since="$BEFORE"
+          fi
+          if [ -n "$since" ] && ! git cat-file -e "${since}^{commit}" 2>/dev/null; then since=""; fi
+          args=(git file://. --branch HEAD --only-verified --no-update --json)
+          if [ -n "$since" ]; then
+            args+=(--since-commit "$since")
+            echo "Scanning ${since}..HEAD"
+          else
+            echo "Scanning the full history"
+          fi
+          trufflehog "${args[@]}" > "$RUNNER_TEMP/trufflehog.jsonl" 2> "$RUNNER_TEMP/trufflehog.err"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=TruffleHog::trufflehog failed with exit code $rc"
+            tail -n 20 "$RUNNER_TEMP/trufflehog.err"
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/gate.js" <<'EOF'
+          const fs = require("fs");
+          const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 200);
+          const rows = fs.readFileSync(`${process.env.RUNNER_TEMP}/trufflehog.jsonl`, "utf8")
+            .split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l))
+            .filter((f) => f.Verified);
+          let md = "## Secrets: TruffleHog (verified only)\n\n";
+          md += `Range: ${process.env.SINCE ? `${process.env.SINCE.slice(0, 12)}..HEAD` : "full history"}. Verified live secrets: **${rows.length}**.\n\n`;
+          if (rows.length) {
+            md += "| Detector | File | Line | Commit |\n| --- | --- | --- | --- |\n";
+            // The secret itself (Raw) is never printed.
+            for (const f of rows) {
+              const g = f.SourceMetadata?.Data?.Git ?? {};
+              md += `| ${esc(f.DetectorName)} | ${esc(g.file)} | ${g.line ?? ""} | ${String(g.commit ?? "").slice(0, 12)} |\n`;
+              console.log(`::error file=${g.file ?? ""},line=${g.line ?? 1}::Verified ${f.DetectorName} secret in ${String(g.commit ?? "").slice(0, 12)}; rotate it`);
+            }
+          } else md += "No verified secrets.\n";
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `blocking=${rows.length}\n`);
+          const enforce = process.env.EVENT !== "schedule" && process.env.REPORT_ONLY !== "true";
+          if (rows.length > 0 && enforce) process.exitCode = 1;
+          EOF
+          SINCE="$since" node "$RUNNER_TEMP/gate.js"
+
+  osv:
+    name: Dependencies (OSV-Scanner)
+    if: ${{ inputs.osv }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 14
+    permissions:
+      contents: read
+    outputs:
+      blocking: ${{ steps.gate.outputs.blocking }}
+    env:
+      OSV_VERSION: 2.7.0
+      OSV_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install OSV-Scanner
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          install -m 0755 "$RUNNER_TEMP/osv-scanner" "$RUNNER_TEMP/bin/osv-scanner"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve the comparison base
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASELINE: ${{ inputs.baseline }}
+          REPORT_ONLY: ${{ inputs.report-only }}
+        run: |
+          set -euo pipefail
+          base=""
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          # A push is compared with the commit before it (all zeros: a new branch, nothing to compare).
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            base="$BEFORE"
+          fi
+          if [ -n "$base" ] && ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base=""; fi
+          # compare=base: only findings absent from the base count. compare=full: every finding counts.
+          compare=full
+          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=base; fi
+          # Advisory when asked, on schedule, or when a baseline is wanted but there is nothing to compare with.
+          enforce=true
+          if [ "$EVENT" = schedule ] || [ "$REPORT_ONLY" = true ] || { [ "$BASELINE" = true ] && [ "$compare" = full ]; }; then enforce=false; fi
+          if [ "$compare" = base ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
+          echo "compare=$compare" >> "$GITHUB_OUTPUT"
+          echo "enforce=$enforce" >> "$GITHUB_OUTPUT"
+          echo "compare=$compare enforce=$enforce base=${base:-none}"
+
+      - name: Scan head and base
+        env:
+          SCAN_PATH: ${{ inputs.path }}
+          EXCLUDE: ${{ inputs.exclude }}
+          COMPARE: ${{ steps.base.outputs.compare }}
+        run: |
+          set +e -uo pipefail
+          scan() { # scan <root> <output>
+            local root="$1" out="$2"
+            local -a ex=()
+            while IFS= read -r d; do [ -n "$d" ] && ex+=(--x-exclude "$d"); done <<< "$EXCLUDE"
+            ( cd "$root/$SCAN_PATH" && osv-scanner scan source -r "${ex[@]}" --format json --output-file "$out" . ) > "$out.log" 2>&1 || true
+            # 0: clean, 1: vulnerabilities found. Anything else without a report is a tool error,
+            # except "no package sources", which means there is nothing to scan.
+            if [ ! -s "$out" ]; then
+              if grep -q 'No package sources found' "$out.log"; then echo '{"results":[]}' > "$out"; else tail -n 20 "$out.log"; return 1; fi
+            fi
+          }
+          scan "$GITHUB_WORKSPACE" "$RUNNER_TEMP/osv-head.json" || exit 1
+          if [ "$COMPARE" = base ]; then scan "$RUNNER_TEMP/base" "$RUNNER_TEMP/osv-base.json" || exit 1; fi
+
+      - name: Summarize and gate
+        id: gate
+        env:
+          COMPARE: ${{ steps.base.outputs.compare }}
+          ENFORCE: ${{ steps.base.outputs.enforce }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          cat > "$RUNNER_TEMP/gate.js" <<'EOF'
+          const fs = require("fs");
+          const tmp = process.env.RUNNER_TEMP;
+          const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 200);
+          const rank = { UNKNOWN: 0, LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+          const fromScore = (s) => { const n = parseFloat(s); return !(n > 0) ? "UNKNOWN" : n >= 9 ? "CRITICAL" : n >= 7 ? "HIGH" : n >= 4 ? "MEDIUM" : "LOW"; };
+          // One finding per OSV group (a GHSA and its CVE aliases are one finding).
+          // Severity: database_specific.severity of the entries (GHSA: LOW, MODERATE, HIGH, CRITICAL);
+          // without it, the group's highest CVSS base score. Neither: UNKNOWN, which is reported, never blocks.
+          const load = (f) => {
+            if (!f || !fs.existsSync(f)) return [];
+            const out = [];
+            for (const r of JSON.parse(fs.readFileSync(f, "utf8")).results ?? []) {
+              for (const p of r.packages ?? []) {
+                for (const g of p.groups ?? []) {
+                  const ids = g.ids ?? [];
+                  const vs = (p.vulnerabilities ?? []).filter((v) => ids.includes(v.id));
+                  let sev = "UNKNOWN";
+                  const labels = vs.map((v) => String(v.database_specific?.severity ?? "").toUpperCase().replace("MODERATE", "MEDIUM")).filter((l) => l in rank);
+                  if (labels.length) sev = labels.sort((a, b) => rank[b] - rank[a])[0];
+                  else sev = fromScore(g.max_severity);
+                  out.push({ eco: p.package.ecosystem, name: p.package.name, version: p.package.version, ids, id: [...ids].sort()[0], sev, src: r.source?.path ?? "" });
+                }
+              }
+            }
+            return out;
+          };
+          const head = load(`${tmp}/osv-head.json`);
+          const diff = process.env.COMPARE === "base";
+          let shown = head;
+          if (diff) {
+            const seen = new Map();
+            for (const b of load(`${tmp}/osv-base.json`)) {
+              const k = `${b.eco}|${b.name}`;
+              if (!seen.has(k)) seen.set(k, new Set());
+              b.ids.forEach((i) => seen.get(k).add(i));
+            }
+            shown = head.filter((h) => !h.ids.some((i) => seen.get(`${h.eco}|${h.name}`)?.has(i)));
+          }
+          shown.sort((a, b) => rank[b.sev] - rank[a.sev] || a.name.localeCompare(b.name));
+          const blocking = shown.filter((f) => rank[f.sev] >= rank.HIGH);
+          const root = process.cwd() + "/";
+          let md = "## Dependencies: OSV-Scanner\n\n";
+          md += diff
+            ? `New against the base: **${shown.length}** (${blocking.length} high or critical, blocking). Existing: ${head.length - shown.length}.\n\n`
+            : `Findings: **${shown.length}** (${blocking.length} high or critical${process.env.ENFORCE === "true" ? ", blocking" : ", advisory on this run"}).\n\n`;
+          md += "Blocks on HIGH and CRITICAL only. UNKNOWN severity (no GHSA label, no CVSS score) is reported and never blocks.\n\n";
+          if (shown.length) {
+            md += "| Severity | Ecosystem | Package | Version | Vulnerability | Lockfile |\n| --- | --- | --- | --- | --- | --- |\n";
+            for (const f of shown.slice(0, 200)) md += `| ${f.sev} | ${f.eco} | ${esc(f.name)} | ${esc(f.version)} | [${esc(f.id)}](https://osv.dev/${f.id}) | ${esc(f.src.replace(root, ""))} |\n`;
+            if (shown.length > 200) md += `\n... and ${shown.length - 200} more.\n`;
+          } else md += diff ? "No new findings.\n" : "No findings.\n";
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `blocking=${blocking.length}\n`);
+          for (const f of blocking) console.log(`::error title=OSV ${f.id}::${f.sev} ${f.name}@${f.version} (${f.eco}) in ${f.src.replace(root, "")}`);
+          if (blocking.length > 0 && process.env.ENFORCE === "true") process.exitCode = 1;
+          EOF
+          cd "$GITHUB_WORKSPACE" && node "$RUNNER_TEMP/gate.js"
+
+  opengrep:
+    name: SAST (Opengrep, TypeScript and JavaScript)
+    if: ${{ inputs.opengrep }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 14
+    permissions:
+      contents: read
+    outputs:
+      blocking: ${{ steps.gate.outputs.blocking }}
+    env:
+      OPENGREP_VERSION: 1.33.1
+      OPENGREP_SHA256: 46e8133cc490f9f50518061590ce2f6be5a08afaeda034471c0ceda4b3899808
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The rules are Semgrep Rules License v1.0: internal business use only. They are checked out
+      # here at a pinned commit for this run and never committed or redistributed.
+      - name: Check out the Semgrep rules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: semgrep/semgrep-rules
+          ref: 16b9e6d45f10649f6a531ec4838ed9924372c3bc
+          path: .opengrep-rules
+          persist-credentials: false
+
+      - name: Install Opengrep
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/opengrep" \
+            "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/opengrep_manylinux_x86"
+          echo "${OPENGREP_SHA256}  $RUNNER_TEMP/opengrep" | sha256sum -c -
+          install -m 0755 "$RUNNER_TEMP/opengrep" "$RUNNER_TEMP/bin/opengrep"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve the comparison base
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASELINE: ${{ inputs.baseline }}
+          REPORT_ONLY: ${{ inputs.report-only }}
+        run: |
+          set -euo pipefail
+          base=""
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          # A push is compared with the commit before it (all zeros: a new branch, nothing to compare).
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            base="$BEFORE"
+          fi
+          if [ -n "$base" ] && ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base=""; fi
+          compare=full
+          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=base; fi
+          enforce=true
+          if [ "$EVENT" = schedule ] || [ "$REPORT_ONLY" = true ] || { [ "$BASELINE" = true ] && [ "$compare" = full ]; }; then enforce=false; fi
+          if [ "$compare" = base ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
+          echo "compare=$compare" >> "$GITHUB_OUTPUT"
+          echo "enforce=$enforce" >> "$GITHUB_OUTPUT"
+          echo "compare=$compare enforce=$enforce base=${base:-none}"
+
+      # `opengrep scan --baseline-commit` exists, but it checks the base out over the working tree;
+      # scanning two clean trees and diffing the findings is easier to reason about.
+      - name: Scan head and base
+        env:
+          SCAN_PATH: ${{ inputs.path }}
+          EXCLUDE: ${{ inputs.exclude }}
+          COMPARE: ${{ steps.base.outputs.compare }}
+        run: |
+          set +e -uo pipefail
+          rules="$GITHUB_WORKSPACE/.opengrep-rules"
+          scan() { # scan <root> <name>
+            local root="$1" name="$2" rc=0
+            local -a ex=(--exclude node_modules --exclude dist --exclude build --exclude .svelte-kit --exclude target --exclude .git --exclude .opengrep-rules)
+            while IFS= read -r d; do [ -n "$d" ] && ex+=(--exclude "$d"); done <<< "$EXCLUDE"
+            # --x-ignore-semgrepignore-files: the default ignore list skips tests/ and similar;
+            # the excludes above are the only ones that apply. Opengrep has no telemetry and no
+            # --metrics flag.
+            ( cd "$root/$SCAN_PATH" && opengrep scan --quiet --disable-version-check \
+                --config "$rules/typescript" --config "$rules/javascript" \
+                --x-ignore-semgrepignore-files --exclude-minified-files "${ex[@]}" \
+                --json-output="$RUNNER_TEMP/opengrep-$name.json" --sarif-output="$RUNNER_TEMP/opengrep-$name.sarif" . ) \
+              > "$RUNNER_TEMP/opengrep-$name.log" 2>&1 || rc=$?
+            if [ "$rc" -ne 0 ] || [ ! -s "$RUNNER_TEMP/opengrep-$name.json" ]; then
+              echo "::error title=Opengrep::opengrep failed with exit code $rc"
+              tail -n 30 "$RUNNER_TEMP/opengrep-$name.log"
+              return 1
+            fi
+          }
+          scan "$GITHUB_WORKSPACE" head || exit 1
+          if [ "$COMPARE" = base ]; then scan "$RUNNER_TEMP/base" base || exit 1; fi
+
+      - name: Upload the SARIF and JSON reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: opengrep-${{ github.job }}-${{ inputs.concurrency-key || 'default' }}
+          path: |
+            ${{ runner.temp }}/opengrep-head.json
+            ${{ runner.temp }}/opengrep-head.sarif
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Summarize and gate
+        id: gate
+        env:
+          COMPARE: ${{ steps.base.outputs.compare }}
+          ENFORCE: ${{ steps.base.outputs.enforce }}
+        run: |
+          cat > "$RUNNER_TEMP/gate.js" <<'EOF'
+          const fs = require("fs");
+          const tmp = process.env.RUNNER_TEMP;
+          const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 160);
+          const rank = { INFO: 0, WARNING: 1, ERROR: 2 };
+          // The typescript and javascript rule trees hold some non-security rules; keep security ones.
+          const load = (f) => !fs.existsSync(f) ? [] : (JSON.parse(fs.readFileSync(f, "utf8")).results ?? [])
+            .filter((r) => String(r.extra?.metadata?.category ?? "").toLowerCase() === "security")
+            .map((r) => ({
+              rule: r.check_id.replace(/^.*?\.opengrep-rules\./, "").replace(/^.*?(?=(typescript|javascript)\.)/, ""),
+              sev: r.extra.severity, path: r.path, line: r.start.line, text: String(r.extra.lines ?? "").trim(),
+            }));
+          const head = load(`${tmp}/opengrep-head.json`);
+          const diff = process.env.COMPARE === "base";
+          let shown = head;
+          if (diff) {
+            // Line numbers shift; the rule, the file and the matched source line identify a finding.
+            const counts = new Map();
+            for (const b of load(`${tmp}/opengrep-base.json`)) { const k = `${b.rule}|${b.path}|${b.text}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
+            shown = head.filter((h) => { const k = `${h.rule}|${h.path}|${h.text}`; const n = counts.get(k) ?? 0; if (n > 0) { counts.set(k, n - 1); return false; } return true; });
+          }
+          shown.sort((a, b) => (rank[b.sev] ?? 0) - (rank[a.sev] ?? 0) || a.path.localeCompare(b.path) || a.line - b.line);
+          const blocking = shown.filter((f) => f.sev === "ERROR");
+          let md = "## SAST: Opengrep (Semgrep TypeScript and JavaScript security rules)\n\n";
+          md += diff
+            ? `New against the base: **${shown.length}** (${blocking.length} ERROR, blocking). Existing: ${head.length - shown.length}.\n\n`
+            : `Findings: **${shown.length}** (${blocking.length} ERROR${process.env.ENFORCE === "true" ? ", blocking" : ", advisory on this run"}).\n\n`;
+          md += "Only ERROR severity blocks; WARNING and INFO are listed. Suppress with `// nosemgrep: <rule-id> reason` on the line; give a reason.\n\n";
+          if (shown.length) {
+            md += "| Severity | Rule | File | Line | Code |\n| --- | --- | --- | --- | --- |\n";
+            for (const f of shown.slice(0, 200)) md += `| ${f.sev} | ${esc(f.rule)} | ${esc(f.path)} | ${f.line} | \`${esc(f.text).replace(/`/g, "'")}\` |\n`;
+            if (shown.length > 200) md += `\n... and ${shown.length - 200} more.\n`;
+          } else md += diff ? "No new findings.\n" : "No findings.\n";
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `blocking=${blocking.length}\n`);
+          for (const f of blocking) console.log(`::error file=${f.path},line=${f.line},title=Opengrep::${f.rule}`);
+          if (blocking.length > 0 && process.env.ENFORCE === "true") process.exitCode = 1;
+          EOF
+          cd "$GITHUB_WORKSPACE" && node "$RUNNER_TEMP/gate.js"
+
+  trivy-config:
+    name: Dockerfiles (Trivy misconfiguration)
+    if: ${{ inputs.trivy-config }}
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 14
+    permissions:
+      contents: read
+    outputs:
+      blocking: ${{ steps.gate.outputs.blocking }}
+    env:
+      TRIVY_VERSION: 0.76.1
+      TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Trivy
+        id: install
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/dl-trivy"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP/dl-trivy" trivy
+          install -m 0755 "$RUNNER_TEMP/dl-trivy/trivy" "$RUNNER_TEMP/bin/trivy"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      # The checks bundle comes from ghcr.io; the cache keeps most runs off the registry rate limit.
+      - name: Cache the Trivy checks bundle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-checks-${{ runner.os }}-${{ steps.install.outputs.day }}
+          restore-keys: trivy-checks-${{ runner.os }}-
+
+      - name: Resolve the comparison base
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASELINE: ${{ inputs.baseline }}
+          REPORT_ONLY: ${{ inputs.report-only }}
+        run: |
+          set -euo pipefail
+          base=""
+          # A pull request is checked out as a merge commit: its first parent is the base branch tip.
+          # A push is compared with the commit before it (all zeros: a new branch, nothing to compare).
+          if [ "$EVENT" = pull_request ] || [ "$EVENT" = pull_request_target ]; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ]; then
+            base="$BEFORE"
+          fi
+          if [ -n "$base" ] && ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base=""; fi
+          compare=full
+          if [ "$BASELINE" = true ] && [ -n "$base" ]; then compare=base; fi
+          enforce=true
+          if [ "$EVENT" = schedule ] || [ "$REPORT_ONLY" = true ] || { [ "$BASELINE" = true ] && [ "$compare" = full ]; }; then enforce=false; fi
+          if [ "$compare" = base ]; then git worktree add --detach "$RUNNER_TEMP/base" "$base"; fi
+          echo "compare=$compare" >> "$GITHUB_OUTPUT"
+          echo "enforce=$enforce" >> "$GITHUB_OUTPUT"
+          echo "compare=$compare enforce=$enforce base=${base:-none}"
+
+      - name: Scan head and base
+        env:
+          SCAN_PATH: ${{ inputs.path }}
+          EXCLUDE: ${{ inputs.exclude }}
+          COMPARE: ${{ steps.base.outputs.compare }}
+        run: |
+          set +e -uo pipefail
+          ignore=""
+          if [ -f "$GITHUB_WORKSPACE/$SCAN_PATH/.trivyignore" ]; then ignore="$GITHUB_WORKSPACE/$SCAN_PATH/.trivyignore"; fi
+          # Every entry in .trivyignore needs a reason: a comment on the line above or after it.
+          if [ -n "$ignore" ]; then
+            if ! awk '
+              /^[[:space:]]*$/ { prev = ""; next }
+              /^[[:space:]]*#/ { prev = "c"; next }
+              { if (prev != "c" && $0 !~ /#/) { printf "::error file=.trivyignore,line=%d::Entry without a reason; add a comment above it\n", NR; bad = 1 } prev = "" }
+              END { exit bad }' "$ignore"; then exit 1; fi
+          fi
+          scan() { # scan <root> <name>
+            local root="$1" name="$2" rc=0 attempt
+            local -a args=(config --misconfig-scanners dockerfile --severity "HIGH,CRITICAL" --format json
+              --skip-dirs node_modules --skip-dirs dist --skip-dirs build --skip-dirs .svelte-kit --skip-dirs target)
+            while IFS= read -r d; do [ -n "$d" ] && args+=(--skip-dirs "$d"); done <<< "$EXCLUDE"
+            [ -n "$ignore" ] && args+=(--ignorefile "$ignore")
+            for attempt in 1 2 3; do
+              ( cd "$root/$SCAN_PATH" && trivy "${args[@]}" --output "$RUNNER_TEMP/trivy-$name.json" . ) > "$RUNNER_TEMP/trivy-$name.log" 2>&1 && return 0
+              rc=$?
+              sleep $((attempt * 10))
+            done
+            echo "::error title=Trivy::trivy config failed with exit code $rc"
+            tail -n 20 "$RUNNER_TEMP/trivy-$name.log"
+            return 1
+          }
+          scan "$GITHUB_WORKSPACE" head || exit 1
+          if [ "$COMPARE" = base ]; then scan "$RUNNER_TEMP/base" base || exit 1; fi
+
+      - name: Summarize and gate
+        id: gate
+        env:
+          COMPARE: ${{ steps.base.outputs.compare }}
+          ENFORCE: ${{ steps.base.outputs.enforce }}
+        run: |
+          cat > "$RUNNER_TEMP/gate.js" <<'EOF'
+          const fs = require("fs");
+          const tmp = process.env.RUNNER_TEMP;
+          const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").slice(0, 200);
+          const rank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+          const load = (f) => !fs.existsSync(f) ? [] : (JSON.parse(fs.readFileSync(f, "utf8")).Results ?? [])
+            .flatMap((r) => (r.Misconfigurations ?? []).map((m) => ({
+              file: r.Target, id: m.ID, sev: m.Severity, title: m.Title, msg: m.Message, line: m.CauseMetadata?.StartLine ?? "", url: m.PrimaryURL,
+            })));
+          const head = load(`${tmp}/trivy-head.json`);
+          const diff = process.env.COMPARE === "base";
+          let shown = head;
+          if (diff) {
+            const counts = new Map();
+            for (const b of load(`${tmp}/trivy-base.json`)) { const k = `${b.file}|${b.id}|${b.msg}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
+            shown = head.filter((h) => { const k = `${h.file}|${h.id}|${h.msg}`; const n = counts.get(k) ?? 0; if (n > 0) { counts.set(k, n - 1); return false; } return true; });
+          }
+          shown.sort((a, b) => (rank[b.sev] ?? 0) - (rank[a.sev] ?? 0) || a.file.localeCompare(b.file));
+          const blocking = shown.filter((f) => (rank[f.sev] ?? 0) >= rank.HIGH);
+          let md = "## Dockerfiles: Trivy misconfiguration\n\n";
+          md += diff
+            ? `New against the base: **${shown.length}** (HIGH and CRITICAL, blocking). Existing: ${head.length - shown.length}.\n\n`
+            : `Findings: **${shown.length}** (HIGH and CRITICAL${process.env.ENFORCE === "true" ? ", blocking" : ", advisory on this run"}).\n\n`;
+          md += "Accept a finding by adding its ID to `.trivyignore` with a comment that gives the reason.\n\n";
+          if (shown.length) {
+            md += "| Severity | ID | File | Line | Problem |\n| --- | --- | --- | --- | --- |\n";
+            for (const f of shown.slice(0, 200)) md += `| ${f.sev} | [${f.id}](${f.url ?? "#"}) | ${esc(f.file)} | ${f.line} | ${esc(f.title)}: ${esc(f.msg)} |\n`;
+          } else md += diff ? "No new findings.\n" : "No findings.\n";
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `blocking=${blocking.length}\n`);
+          for (const f of blocking) console.log(`::error file=${f.file},line=${f.line || 1},title=Trivy ${f.id}::${f.title}`);
+          if (blocking.length > 0 && process.env.ENFORCE === "true") process.exitCode = 1;
+          EOF
+          cd "$GITHUB_WORKSPACE" && node "$RUNNER_TEMP/gate.js"

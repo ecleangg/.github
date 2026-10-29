@@ -1,0 +1,16 @@
+name: Delete old Action runs
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # Run daily at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  delete-runs:
+    permissions:
+      actions: write
+      contents: read
+    uses: ./.github/workflows/delete-runs.yml
