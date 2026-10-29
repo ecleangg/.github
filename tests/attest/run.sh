@@ -4,6 +4,8 @@
 set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=../../scripts/eclean-attest-lib.sh
+. "$root/scripts/eclean-attest-lib.sh"
 t="$(mktemp -d)"
 trap 'rm -rf "$t"' EXIT
 export GIT_CONFIG_GLOBAL="$t/gitconfig" GIT_CONFIG_SYSTEM=/dev/null HOME="$t/home"
@@ -110,6 +112,60 @@ mkdir .repohooks && printf '#!/bin/sh\necho repowins >>"%s/marks2"\n' "$t" >.rep
 warn="$(bash "$H/dispatch" pre-commit 2>&1)"
 case "$warn" in *warning*) ok "local core.hooksPath: warning printed" ;; *) bad "local core.hooksPath: warning printed" ;; esac
 [ -f "$t/marks2" ] && ok "local core.hooksPath: repo hook wins" || bad "local core.hooksPath: repo hook wins"
+
+# --- pre-commit: full verify + automatic attestation ---
+git config --global gpg.format ssh
+git config --global user.signingkey "$t/key1"
+
+git init -q --bare "$t/pc-origin.git"
+git init -q "$t/pc" && cd "$t/pc" || exit 1
+git remote add origin "$t/pc-origin.git"
+repo_pc="$(git remote get-url origin | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')"
+printf 'verify:\n\t@true\n' >Makefile
+echo a >file.txt
+git add -A
+
+out="$(git commit -qm init 2>&1)"
+if [ $? -eq 0 ]; then ok "(a) commit with working verify succeeds"; else echo "$out"; bad "(a) commit with working verify succeeds"; fi
+git notes --ref="$EA_NOTES_REF" list HEAD >/dev/null 2>&1 && ok "(a) note written automatically on commit" || bad "(a) note written automatically on commit"
+expect "(a) auto-attested commit verifies" true "$(verify --repo "$repo_pc")"
+
+before="$(git rev-parse HEAD)"
+printf 'verify:\n\t@false\n' >Makefile
+git add -A
+out="$(git commit -qm broken 2>&1)"
+if [ $? -ne 0 ]; then ok "(b) failing verify blocks the commit"; else bad "(b) failing verify blocks the commit"; fi
+case "$out" in *"commit blocked"*) ok "(b) failure output names the blocked commit" ;; *) bad "(b) failure output names the blocked commit ($out)" ;; esac
+after="$(git rev-parse HEAD)"
+[ "$before" = "$after" ] && ok "(b) HEAD did not move" || bad "(b) HEAD did not move"
+git notes --ref="$EA_NOTES_REF" list HEAD >/dev/null 2>&1
+[ "$(git notes --ref="$EA_NOTES_REF" list | wc -l | tr -d ' ')" = 1 ] && ok "(b) no new attestation written" || bad "(b) no new attestation written"
+
+out="$(ECLEAN_SKIP_VERIFY=1 git commit -qam skip 2>&1)"
+if [ $? -eq 0 ]; then ok "(c) ECLEAN_SKIP_VERIFY lets a failing-verify commit through"; else echo "$out"; bad "(c) ECLEAN_SKIP_VERIFY lets a failing-verify commit through"; fi
+case "$out" in *"ECLEAN_SKIP_VERIFY=1 set"*) ok "(c) skip is logged loudly" ;; *) bad "(c) skip is logged loudly ($out)" ;; esac
+[ "$(git notes --ref="$EA_NOTES_REF" list | wc -l | tr -d ' ')" = 1 ] && ok "(c) skipped commit has no attestation" || bad "(c) skipped commit has no attestation"
+
+printf 'verify:\n\t@true\n' >Makefile
+git add -A
+git config --global --unset gpg.format
+git config --global --unset user.signingkey
+out="$(git commit -qm fixed 2>&1)"
+if [ $? -eq 0 ]; then ok "(e) commit succeeds with no signing key configured"; else echo "$out"; bad "(e) commit succeeds with no signing key configured"; fi
+case "$out" in *"no signing key configured"*) ok "(e) missing signing key warns" ;; *) bad "(e) missing signing key warns ($out)" ;; esac
+[ "$(git notes --ref="$EA_NOTES_REF" list | wc -l | tr -d ' ')" = 1 ] && ok "(e) no attestation written without a signing key" || bad "(e) no attestation written without a signing key"
+git config --global gpg.format ssh
+git config --global user.signingkey "$t/key1"
+
+# (d) repo-local pre-commit hook chaining is covered above ("repo hook then .git/hooks chained" etc.),
+# re-run here with full verify active to prove it still fires alongside the new behaviour.
+mkdir .githooks
+printf '#!/bin/sh\necho repo >>"%s/marks3"\n' "$t" >.githooks/pre-commit
+chmod +x .githooks/pre-commit
+echo b >>file.txt && git add -A && git commit -qm chained >/dev/null 2>&1
+[ -f "$t/marks3" ] && ok "(d) repo-local pre-commit hook still chains alongside full verify" || bad "(d) repo-local pre-commit hook still chains alongside full verify"
+
+cd "$t" || exit 1
 
 echo
 [ "$fails" -eq 0 ] && echo "all tests passed" || { echo "$fails test(s) failed"; exit 1; }

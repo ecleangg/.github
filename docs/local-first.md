@@ -1,33 +1,57 @@
 # Local-first checks, attestation and drafts
 
-Three layers keep Actions minutes low without weakening the gates.
+Two layers keep Actions minutes low without weakening the gates.
 
 | Layer | Where | What runs | Skippable |
 | --- | --- | --- | --- |
-| 1. Light pre-commit | developer machine | the repo's own fast hook (format or fix staged files) | yes (`--no-verify`) |
-| 2. Attestation (optional) | developer machine, then CI checks it | the repo's full `verify` (lint, format, typecheck, tests), signed | never required |
-| 3. Full CI | GitHub Actions | verify (unless attested), coverage, scans, builds | no |
+| 1. pre-commit | developer machine | the repo's own fast hook, then the repo's full `verify` (lint, format, typecheck, tests); on success, a signed attestation is stored automatically | `ECLEAN_SKIP_VERIFY=1` skips verify/attestation (loudly logged); `--no-verify` skips the hook entirely |
+| 2. Full CI | GitHub Actions | verify (unless attested), coverage, scans, builds | no |
 
-Nothing heavy runs in a git hook. A pre-push hook does nothing by default: heavy work runs in CI or
-through `eclean-attest`.
+A pre-push hook does nothing by default: heavy work runs in CI, or already happened in pre-commit.
 
 ## Developer setup (once)
 
 ```sh
 git clone https://github.com/ecleangg/.github && cd .github
 chmod +x scripts/* githooks/*         # files arrive without the executable bit
-scripts/install-githooks              # machine-wide light hook dispatcher
+scripts/install-githooks              # machine-wide hook dispatcher
 scripts/eclean-attest-setup           # ed25519 signing key, gpg.format=ssh, commit.gpgsign=true
 ```
 
 `eclean-attest-setup` prints a line. Submit it by pull request to
 `.github/attestation/allowed_signers` (format `email namespaces="eclean-verify" ssh-ed25519 AAAA...`),
 and upload the same public key to GitHub as a Signing Key (the public repos require signed commits).
-Until your key is merged your attestations are simply invalid and CI runs verify normally.
+Until your key is merged your attestations are simply invalid and CI runs verify normally. Without a
+signing key configured at all, pre-commit still runs full verify but warns once and skips
+attestation rather than blocking the commit.
 
-## Attesting a commit
+## What pre-commit does now
 
-Commit and push your branch, then from the repo checkout:
+Every `git commit` (once `install-githooks` is set up) runs, in order:
+
+1. The repo's own lightweight hook, if any (`.githooks/pre-commit`, `.husky/pre-commit`, or
+   `lefthook run pre-commit`) — unchanged from before.
+2. The repo's full verify command, auto-detected the same way as `eclean-attest`
+   (`bun run verify`, then `cargo xtask verify`, then `make verify`).
+3. On success, a signed attestation for the commit being created is stored automatically under
+   `refs/notes/eclean-verify` and pushed to origin — the same mechanism `eclean-attest` uses by hand
+   (and still provides, for attesting a commit after the fact, e.g. one made with `--no-verify` or on
+   another machine). This step is skipped (with a one-time warning) when no SSH signing key is
+   configured; it does not block the commit.
+4. On failure, the commit is blocked. The hook prints which command failed and the tail of its
+   output.
+
+### Skipping the full verify step
+
+- `ECLEAN_SKIP_VERIFY=1 git commit ...` skips the full verify and attestation step only, and prints a
+  loud warning so the skip is never silent. The repo's lightweight hook (step 1) still runs.
+- `git commit --no-verify` skips every hook, including the lightweight one, with git's own (silent)
+  convention.
+
+## Attesting a commit by hand
+
+To attest a commit after the fact (made with `--no-verify`, on a machine without a signing key at the
+time, or from another machine), run from the repo checkout:
 
 ```sh
 /path/to/.github/scripts/eclean-attest          # or: eclean-attest --cmd "make verify" --key ~/.ssh/key
