@@ -68,6 +68,62 @@
         "\\w+_image:\\s*[\"']?(?<depName>[^:\\s\"']+):(?<currentValue>[^@\\s\"']+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "description": "actionlint pinned release binary (amd64) in security.yml",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/security\\.yml$/"
+      ],
+      "matchStrings": [
+        "ACTIONLINT_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)[\\s\\S]*?ACTIONLINT_SHA256_AMD64:\\s*(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "depNameTemplate": "rhysd/actionlint",
+      "packageNameTemplate": "rhysd/actionlint",
+      "datasourceTemplate": "github-release-attachments",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "actionlint pinned release binary (arm64) in security.yml",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/security\\.yml$/"
+      ],
+      "matchStrings": [
+        "ACTIONLINT_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)[\\s\\S]*?ACTIONLINT_SHA256_ARM64:\\s*(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "depNameTemplate": "rhysd/actionlint",
+      "packageNameTemplate": "rhysd/actionlint",
+      "datasourceTemplate": "github-release-attachments",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "opengrep pinned release binary (amd64) in security.yml",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/security\\.yml$/"
+      ],
+      "matchStrings": [
+        "OPENGREP_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)[\\s\\S]*?OPENGREP_SHA256_AMD64:\\s*(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "depNameTemplate": "opengrep/opengrep",
+      "packageNameTemplate": "opengrep/opengrep",
+      "datasourceTemplate": "github-release-attachments",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "opengrep pinned release binary (arm64) in security.yml",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/security\\.yml$/"
+      ],
+      "matchStrings": [
+        "OPENGREP_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)[\\s\\S]*?OPENGREP_SHA256_ARM64:\\s*(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "depNameTemplate": "opengrep/opengrep",
+      "packageNameTemplate": "opengrep/opengrep",
+      "datasourceTemplate": "github-release-attachments",
+      "extractVersionTemplate": "^v(?<version>.*)$"
     }
   ]
 }
