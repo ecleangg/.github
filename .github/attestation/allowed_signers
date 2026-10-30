@@ -2,4 +2,4 @@
 # One line per developer key:
 #   <eclean email> namespaces="eclean-verify" ssh-ed25519 AAAA...
 # Add yours by pull request (see docs/local-first.md); remove keys of people who leave or rotate.
-# No keys are enrolled yet, so every attestation is currently invalid and CI runs verify normally.
+william.hallin@eclean.gg namespaces="eclean-verify" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGnLJ/644EI39KronK5xooN5+dPaRmDXwXLMAPlyqPU4
