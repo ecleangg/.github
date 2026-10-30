@@ -31,6 +31,9 @@ outputs:
   reason:
     description: "Human readable reason"
     value: ${{ steps.verify.outputs.reason }}
+  time:
+    description: "UTC timestamp of the attestation (ISO 8601); empty unless valid"
+    value: ${{ steps.verify.outputs.time }}
 
 runs:
   using: composite
@@ -50,6 +53,7 @@ runs:
         API_URL: ${{ github.api_url }}
       run: |
         valid=false
+        when=""
         reason="verification did not run"
         verifier="$(cd "$ACTION_PATH/../../.." && pwd)/scripts/eclean-attest-verify"
         cd "$WORKDIR" || exit 0
@@ -85,4 +89,5 @@ runs:
         {
           echo "valid=$valid"
           echo "reason=$reason"
+          [ "$valid" != true ] || echo "time=$when"
         } >> "$GITHUB_OUTPUT"
