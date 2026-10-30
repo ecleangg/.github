@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check the attestation notes of a checkout. Prints `valid=true|false` and `reason=...` (plus
-# `attester=` and `time=` when valid); always exits 0 unless called wrongly, so a caller never fails
+# `attester=`, `time=` and `suites=` when valid); always exits 0 unless called wrongly, so a caller never fails
 # on an invalid attestation.
 #
 #   eclean-attest-verify --repo owner/name --allowed-signers <file> [--ref <sha>] [--max-age-days N]
@@ -26,7 +26,7 @@ done
 [ -n "$repo" ] && [ -n "$allowed" ] || { echo "eclean-attest-verify: --repo and --allowed-signers are required" >&2; exit 2; }
 case "$max_age" in '' | *[!0-9]*) echo "eclean-attest-verify: --max-age-days must be a number" >&2; exit 2 ;; esac
 
-result() { echo "valid=$1"; echo "reason=$2"; [ -z "${3:-}" ] || echo "attester=$3"; [ -z "${4:-}" ] || echo "time=$4"; exit 0; }
+result() { echo "valid=$1"; echo "reason=$2"; [ -z "${3:-}" ] || echo "attester=$3"; [ -z "${4:-}" ] || echo "time=$4"; [ -z "${5:-}" ] || echo "suites=$5"; exit 0; }
 
 head="$(git rev-parse --verify -q "$ref^{commit}")" || result false "ref $ref is not in the checkout"
 tree="$(git rev-parse "$head^{tree}")"
@@ -63,6 +63,7 @@ while read -r c; do
   case "$epoch" in '' | *[!0-9]*) fail="attestation has no valid timestamp"; continue ;; esac
   [ "$epoch" -le $((now + 300)) ] || { fail="attestation timestamp is in the future"; continue; }
   [ $((now - epoch)) -le $((max_age * 86400)) ] || { fail="attestation is older than $max_age days"; continue; }
-  result true "attested by $attester" "$attester" "$(ea_field time "$tmp/payload")"
+  suites="$(ea_field suites "$tmp/payload")"
+  result true "attested by $attester" "$attester" "$(ea_field time "$tmp/payload")" "${suites:-verify}"
 done <"$tmp/commits"
 result false "$fail"

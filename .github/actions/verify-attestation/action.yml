@@ -34,6 +34,9 @@ outputs:
   time:
     description: "UTC timestamp of the attestation (ISO 8601); empty unless valid"
     value: ${{ steps.verify.outputs.time }}
+  suites:
+    description: "Comma separated suites the attester ran (verify, verify,e2e); empty unless valid"
+    value: ${{ steps.verify.outputs.suites }}
 
 runs:
   using: composite
@@ -54,6 +57,7 @@ runs:
       run: |
         valid=false
         when=""
+        suites=""
         reason="verification did not run"
         verifier="$(cd "$ACTION_PATH/../../.." && pwd)/scripts/eclean-attest-verify"
         cd "$WORKDIR" || exit 0
@@ -76,6 +80,7 @@ runs:
             r="$(printf '%s\n' "$out" | sed -n 's/^reason=//p' | head -n 1)"
             who="$(printf '%s\n' "$out" | sed -n 's/^attester=//p' | head -n 1)"
             when="$(printf '%s\n' "$out" | sed -n 's/^time=//p' | head -n 1)"
+            suites="$(printf '%s\n' "$out" | sed -n 's/^suites=//p' | head -n 1)"
             if [ "$v" = true ]; then valid=true; reason="attested by $who at $when"; elif [ -n "$r" ]; then reason="$r"; fi
           else
             reason="no attestation found (no eclean-verify notes on the remote)"
@@ -89,5 +94,5 @@ runs:
         {
           echo "valid=$valid"
           echo "reason=$reason"
-          [ "$valid" != true ] || echo "time=$when"
+          [ "$valid" != true ] || { echo "time=$when"; echo "suites=$suites"; }
         } >> "$GITHUB_OUTPUT"

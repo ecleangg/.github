@@ -2,6 +2,7 @@
 # outputs; see docs/local-first.md for the caller pattern.
 #   run-full     true unless the event is a draft pull request
 #   skip-verify  true for a non-draft pull request whose head tree carries a valid attestation
+#   skip-e2e     true when that attestation also records an end-to-end run (suites verify,e2e)
 #   draft        true for a draft pull request
 name: PR gate
 
@@ -38,6 +39,9 @@ on:
       skip-verify:
         description: "true when a valid attestation lets CI skip lint, format, typecheck and tests"
         value: ${{ jobs.gate.outputs.skip-verify }}
+      skip-e2e:
+        description: "true when a valid attestation also records an end-to-end run, so CI may skip the end-to-end job"
+        value: ${{ jobs.gate.outputs.skip-e2e }}
       draft:
         description: "true for a draft pull request"
         value: ${{ jobs.gate.outputs.draft }}
@@ -55,6 +59,7 @@ jobs:
       run-full: ${{ steps.decide.outputs.run-full }}
       skip-verify: ${{ steps.final.outputs.skip-verify }}
       skip-audit: ${{ steps.final.outputs.skip-audit }}
+      skip-e2e: ${{ steps.final.outputs.skip-e2e }}
       draft: ${{ steps.decide.outputs.draft }}
     steps:
       - id: decide
@@ -88,13 +93,15 @@ jobs:
         env:
           VALID: ${{ steps.attest.outputs.valid }}
           ATTESTED_AT: ${{ steps.attest.outputs.time }}
+          SUITES: ${{ steps.attest.outputs.suites }}
           AUDIT_MAX_AGE: ${{ inputs.audit-max-age-days }}
         run: |
-          skip=false audit=false
+          skip=false audit=false e2e=false
           if [ "$VALID" = true ]; then
             skip=true
+            case ",$SUITES," in *,e2e,*) e2e=true ;; esac
             # Audits read advisory databases that change without the tree changing, so only a fresh attestation covers them.
             at="$(date -u -d "$ATTESTED_AT" +%s 2>/dev/null || echo 0)"
             if [ "$at" -gt 0 ] && [ $(( $(date -u +%s) - at )) -le $(( AUDIT_MAX_AGE * 86400 )) ]; then audit=true; fi
           fi
-          { echo "skip-verify=$skip"; echo "skip-audit=$audit"; } >> "$GITHUB_OUTPUT"
+          { echo "skip-verify=$skip"; echo "skip-audit=$audit"; echo "skip-e2e=$e2e"; } >> "$GITHUB_OUTPUT"

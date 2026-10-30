@@ -173,6 +173,28 @@ chmod +x .githooks/pre-commit
 echo b >>file.txt && git add -A && git commit -qm chained >/dev/null 2>&1
 [ -f "$t/marks3" ] && ok "(d) repo-local pre-commit hook still chains alongside full verify" || bad "(d) repo-local pre-commit hook still chains alongside full verify"
 
+# --- suites: an end-to-end run is recorded in the signed note ---
+mkdir "$t/bin" && printf '#!/bin/sh\n[ "$2" = verify:e2e ] && [ -f "$E2E_FAIL" ] && exit 1\nexit 0\n' >"$t/bin/bun" && chmod +x "$t/bin/bun"
+export PATH="$t/bin:$PATH"
+git init -q --bare "$t/e2e-origin.git"
+git init -q "$t/e2e" && cd "$t/e2e" || exit 1
+git remote add origin "$t/e2e-origin.git"
+repo_e2e="$(git remote get-url origin | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')"
+printf '{"scripts":{"verify":"x","verify:e2e":"y"}}\n' >package.json
+echo a >file.txt
+git add -A && git commit -qm init 2>/dev/null
+expect "(f) plain commit verifies" true "$(verify --repo "$repo_e2e")"
+case "$(verify --repo "$repo_e2e")" in *$'\n'suites=verify) ok "(f) no E2E flag -> suites=verify" ;; *) bad "(f) no E2E flag -> suites=verify" ;; esac
+echo b >>file.txt && git add -A
+ECLEAN_ATTEST_E2E=1 git commit -qm e2e 2>/dev/null
+case "$(verify --repo "$repo_e2e")" in *$'\n'suites=verify,e2e) ok "(f) ECLEAN_ATTEST_E2E=1 -> suites=verify,e2e" ;; *) bad "(f) ECLEAN_ATTEST_E2E=1 -> suites=verify,e2e" ;; esac
+echo c >>file.txt && git add -A
+touch "$t/e2e-fail"
+if E2E_FAIL="$t/e2e-fail" ECLEAN_ATTEST_E2E=1 git commit -qm e2efail 2>/dev/null; then bad "(f) failing e2e blocks the commit"; else ok "(f) failing e2e blocks the commit"; fi
+git commit -qm e2e-off 2>/dev/null
+if bash "$root/scripts/eclean-attest" --e2e --key "$t/key1" --repo "$repo_e2e" >/dev/null 2>&1; then ok "(f) eclean-attest --e2e runs"; else bad "(f) eclean-attest --e2e runs"; fi
+case "$(verify --repo "$repo_e2e")" in *$'\n'suites=verify,e2e) ok "(f) eclean-attest --e2e records suites" ;; *) bad "(f) eclean-attest --e2e records suites" ;; esac
+
 cd "$t" || exit 1
 
 echo

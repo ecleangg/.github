@@ -64,6 +64,18 @@ on HEAD and pushes it to origin. The attestation is bound to the TREE of HEAD pl
 content change invalidates it; an amend or rebase that keeps the same tree does not. Squash-merging
 changes the tree, which is why pushes to main always run everything.
 
+### Attesting end-to-end suites too
+
+Some repos keep a slow suite outside `verify` (the website's Playwright run, three browsers). A repo
+that defines a `verify:e2e` script in `package.json` can attest it as well: run the commit with
+`ECLEAN_ATTEST_E2E=1` (or `eclean-attest --e2e`). After `verify` passes, the hook runs
+`bun run verify:e2e`; if both pass, the signed note records `"suites":"verify,e2e"`. Without the flag
+the note says `"suites":"verify"` (notes made before the field existed count as `verify`), and a
+failing e2e run blocks the commit. `actions/verify-attestation` exposes the field as `suites` and
+`pr-gate.yml` as `skip-e2e`, which is true only for a valid attestation whose suites include `e2e`.
+The caller gates its e2e job on `needs.gate.outputs.skip-e2e != 'true'`. Like everything else the
+field is covered by the signature and bound to the tree, so it vouches only for that exact tree.
+
 ## What CI does with it
 
 `actions/verify-attestation` fetches the notes, checks the SSH signature (namespace `eclean-verify`)
