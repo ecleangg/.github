@@ -8,7 +8,7 @@ Stuck on something? This page points you to the right place. Every inbox and cha
 
 **Perfect for:** anything about eclean, your install, your account, or accessibility. When in doubt, start here.
 
-- **Email:** [hello@eclean.gg](mailto:hello@eclean.gg). We reply within one business day.
+- **Email:** [hello@eclean.gg](mailto:hello@eclean.gg). We aim to reply within one business day.
 - **Live chat:** available on [eclean.gg/contact](https://eclean.gg/contact) while the team is online.
 - **Help center:** [help.eclean.gg](https://help.eclean.gg) has guides and troubleshooting for every module.
 - **Community forum:** [community.eclean.gg](https://community.eclean.gg) is the place to ask questions, share feedback, and vote on ideas.
