@@ -16,6 +16,10 @@ on:
         description: "owner/repo@ref (or a file path) of the allowed_signers file"
         type: string
         default: ecleangg/.github@main
+      runs-on:
+        description: "Runner label for the gate job; override it where ubuntu-slim minutes are unavailable"
+        type: string
+        default: ubuntu-slim
       command-hint:
         description: "Command shown in the summary when no attestation applies"
         type: string
@@ -36,7 +40,7 @@ permissions: {}
 jobs:
   gate:
     name: Gate
-    runs-on: ubuntu-slim
+    runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 5
     permissions:
       contents: read
