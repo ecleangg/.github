@@ -76,7 +76,10 @@ says `verify skipped: attested by <email> at <time>` or why verify runs.
 ## Trust model and limits
 
 - A valid attestation lets CI skip only lint, format, typecheck, tests and coverage generation. It never
-  skips secret scanning, zizmor/actionlint, Trivy, Opengrep, native dependency audits or image builds.
+  skips secret scanning, zizmor/actionlint, Trivy, Opengrep or image builds. Dependency audits are part of
+  `verify` locally, but CI skips them only when `skip-audit` is true: the attestation is also younger than
+  `audit-max-age-days` (default 1), because advisories change without the tree changing. An older
+  attestation skips `verify` yet still runs a separate audit job.
 - A developer machine vouches for its own run. A compromised developer key (or a developer who
   attests without really running verify) can vouch for a bad tree. Mitigations: keep `max-age-days`
   short, review every `allowed_signers` change like a CODEOWNERS change, remove keys when people leave.
@@ -128,9 +131,18 @@ jobs:
       contents: read
     steps:
       # checkout, toolchain setup, then the repo's verify command
-      - run: bun run verify
+      - run: bun run verify          # includes the dependency audit
+  audit:                     # verify was skipped by an attestation too old to vouch for audits
+    needs: gate
+    if: needs.gate.outputs.run-full == 'true' && needs.gate.outputs.skip-verify == 'true' && needs.gate.outputs.skip-audit != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      # checkout, toolchain setup, then the repo's audit command
+      - run: bun run audit:deps
   ci:                        # the one required check
-    needs: [gate, cheap, security-full, verify]
+    needs: [gate, cheap, security-full, verify, audit]
     if: always()
     runs-on: ubuntu-slim
     steps:

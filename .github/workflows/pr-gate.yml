@@ -16,6 +16,10 @@ on:
         description: "owner/repo@ref (or a file path) of the allowed_signers file"
         type: string
         default: ecleangg/.github@main
+      audit-max-age-days:
+        description: "Attestations older than this many days no longer let CI skip dependency audits (advisories change without the tree changing)"
+        type: string
+        default: "1"
       runs-on:
         description: "Runner label for the gate job; override it where ubuntu-slim minutes are unavailable"
         type: string
@@ -28,6 +32,9 @@ on:
       run-full:
         description: "true unless the event is a draft pull request"
         value: ${{ jobs.gate.outputs.run-full }}
+      skip-audit:
+        description: "true when a valid attestation is also younger than audit-max-age-days, so CI may skip dependency audits"
+        value: ${{ jobs.gate.outputs.skip-audit }}
       skip-verify:
         description: "true when a valid attestation lets CI skip lint, format, typecheck and tests"
         value: ${{ jobs.gate.outputs.skip-verify }}
@@ -47,6 +54,7 @@ jobs:
     outputs:
       run-full: ${{ steps.decide.outputs.run-full }}
       skip-verify: ${{ steps.final.outputs.skip-verify }}
+      skip-audit: ${{ steps.final.outputs.skip-audit }}
       draft: ${{ steps.decide.outputs.draft }}
     steps:
       - id: decide
@@ -79,5 +87,14 @@ jobs:
       - id: final
         env:
           VALID: ${{ steps.attest.outputs.valid }}
+          ATTESTED_AT: ${{ steps.attest.outputs.time }}
+          AUDIT_MAX_AGE: ${{ inputs.audit-max-age-days }}
         run: |
-          if [ "$VALID" = true ]; then echo "skip-verify=true" >> "$GITHUB_OUTPUT"; else echo "skip-verify=false" >> "$GITHUB_OUTPUT"; fi
+          skip=false audit=false
+          if [ "$VALID" = true ]; then
+            skip=true
+            # Audits read advisory databases that change without the tree changing, so only a fresh attestation covers them.
+            at="$(date -u -d "$ATTESTED_AT" +%s 2>/dev/null || echo 0)"
+            if [ "$at" -gt 0 ] && [ $(( $(date -u +%s) - at )) -le $(( AUDIT_MAX_AGE * 86400 )) ]; then audit=true; fi
+          fi
+          { echo "skip-verify=$skip"; echo "skip-audit=$audit"; } >> "$GITHUB_OUTPUT"
