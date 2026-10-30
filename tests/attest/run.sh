@@ -134,6 +134,8 @@ git add -A
 out="$(git commit -qm init 2>&1)"
 if [ $? -eq 0 ]; then ok "(a) commit with working verify succeeds"; else echo "$out"; bad "(a) commit with working verify succeeds"; fi
 git notes --ref="$EA_NOTES_REF" list HEAD >/dev/null 2>&1 && ok "(a) note written automatically on commit" || bad "(a) note written automatically on commit"
+case "$out" in *"not found"*) bad "(a) hook output has no shell errors ($out)" ;; *) ok "(a) hook output has no shell errors" ;; esac
+git notes --ref="$EA_NOTES_REF" show HEAD 2>/dev/null | grep -q 'make verify' && ok "(a) note records the multi-word verify command" || bad "(a) note records the multi-word verify command"
 expect "(a) auto-attested commit verifies" true "$(verify --repo "$repo_pc")"
 
 before="$(git rev-parse HEAD)"

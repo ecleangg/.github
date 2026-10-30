@@ -93,8 +93,16 @@ if [ "$name" = post-commit ]; then
   if [ -n "$top" ] && [ -n "$gitdir_local" ] && [ -f "$gitdir_local/ECLEAN_ATTEST_PENDING" ]; then
     cd "$top" || exit 0
     tree="" repo="" cmd="" key="" push=1
-    # shellcheck disable=SC1090,SC1091
-    . "$gitdir_local/ECLEAN_ATTEST_PENDING"
+    # Parsed, not sourced: values such as `cmd=make verify` contain spaces and would be run as a command.
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        tree=*) tree="${line#tree=}" ;;
+        repo=*) repo="${line#repo=}" ;;
+        cmd=*) cmd="${line#cmd=}" ;;
+        key=*) key="${line#key=}" ;;
+        push=*) push="${line#push=}" ;;
+      esac
+    done <"$gitdir_local/ECLEAN_ATTEST_PENDING"
     rm -f "$gitdir_local/ECLEAN_ATTEST_PENDING"
     if [ -n "$tree" ] && [ "$(git rev-parse 'HEAD^{tree}' 2>/dev/null || true)" = "$tree" ]; then
       lib="$self/eclean-attest-lib.sh"
