@@ -2,7 +2,7 @@
 # actions/trivy-image. Publishing (registry login, push, signing) is in ecleangg/.github-private.
 #
 # Draft pull requests skip it. On the self-hosted runners BuildKit's layer cache is a directory on the
-# runner's disk (ECLEAN_ACTIONS_CACHE), read by every run and written from the default branch; on
+# runner's disk (CI_LOCAL_CACHE), read by every run and written from the default branch; on
 # GitHub-hosted runners it is the GitHub Actions cache.
 name: Docker build
 
@@ -84,8 +84,8 @@ jobs:
             if [ "$PACKAGES_SECRET" = true ]; then echo "github_packages_token=$TOKEN"; fi
             echo "ECLEAN_EOF"
           } >> "$GITHUB_OUTPUT"
-          if [ -n "${ECLEAN_ACTIONS_CACHE:-}" ] && [ -w "$ECLEAN_ACTIONS_CACHE" ]; then
-            dir="$ECLEAN_ACTIONS_CACHE/$GITHUB_REPOSITORY/buildx/$NAME"
+          if [ -n "${CI_LOCAL_CACHE:-}" ] && [ -w "$CI_LOCAL_CACHE" ]; then
+            dir="$CI_LOCAL_CACHE/$GITHUB_REPOSITORY/buildx/$NAME"
             mkdir -p "$dir"
             echo "from=type=local,src=$dir" >> "$GITHUB_OUTPUT"
             # BuildKit replaces a local cache directory in place; write a fresh one and swap it in.

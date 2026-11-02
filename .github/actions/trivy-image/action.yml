@@ -89,17 +89,17 @@ runs:
     # every repo (public data); copied in and out so concurrent scans never share Trivy's lock.
     - name: Restore the Trivy databases from the runner's disk
       id: local-db
-      if: env.ECLEAN_ACTIONS_CACHE != ''
+      if: env.CI_LOCAL_CACHE != ''
       shell: bash
       env:
         DAY: ${{ steps.install.outputs.day }}
       run: |
         set -euo pipefail
-        dir="$ECLEAN_ACTIONS_CACHE/trivy-db/$DAY"
+        dir="$CI_LOCAL_CACHE/trivy-db/$DAY"
         mkdir -p "$RUNNER_TEMP/trivy-cache"
         if [ -d "$dir" ]; then cp -a "$dir/." "$RUNNER_TEMP/trivy-cache/"; echo "hit=true" >> "$GITHUB_OUTPUT"; else echo "hit=false" >> "$GITHUB_OUTPUT"; fi
     - name: Cache the Trivy databases
-      if: env.ECLEAN_ACTIONS_CACHE == ''
+      if: env.CI_LOCAL_CACHE == ''
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/trivy-cache
@@ -163,7 +163,7 @@ runs:
         DAY: ${{ steps.install.outputs.day }}
       run: |
         set -euo pipefail
-        dir="$ECLEAN_ACTIONS_CACHE/trivy-db/$DAY"
+        dir="$CI_LOCAL_CACHE/trivy-db/$DAY"
         [ -d "$RUNNER_TEMP/trivy-cache/db" ] || exit 0
         [ -d "$dir" ] && exit 0
         mkdir -p "${dir%/*}"

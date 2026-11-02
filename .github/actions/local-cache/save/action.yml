@@ -1,6 +1,6 @@
 name: Local cache save
 description: >-
-  Saves a cache to the self-hosted runner's disk (ECLEAN_ACTIONS_CACHE), or to actions/cache
+  Saves a cache to the self-hosted runner's disk (CI_LOCAL_CACHE), or to actions/cache
   elsewhere. Existing keys are never overwritten. Pair with local-cache/restore.
 inputs:
   path:
@@ -14,7 +14,7 @@ inputs:
     required: false
     default: ${{ github.workspace }}
   backend:
-    description: "auto (the runner disk when ECLEAN_ACTIONS_CACHE is set, else actions/cache), local or remote"
+    description: "auto (the runner disk when CI_LOCAL_CACHE is set, else actions/cache), local or remote"
     required: false
     default: auto
 runs:

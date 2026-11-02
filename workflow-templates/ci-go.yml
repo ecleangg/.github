@@ -21,7 +21,7 @@ jobs:
       contents: read
       actions: read # Coverage baseline.
       pull-requests: write # Coverage comment.
-    uses: ecleangg/.github/.github/workflows/go-ci.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    uses: ecleangg/.github/.github/workflows/go-ci.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
     with:
       tools: golang.org/x/vuln/cmd/govulncheck@v1.1.4
       audit: govulncheck ./...
@@ -36,4 +36,4 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-    uses: ecleangg/.github-private/.github/workflows/release-please.yml@187eca2d0dbce0f09c376a5dbafb82120a955a99 # main
+    uses: ecleangg/.github-private/.github/workflows/release-please.yml@d45a83276297404fcd5d3e5238da2d85f638cc67 # main

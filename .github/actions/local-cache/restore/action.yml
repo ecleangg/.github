@@ -1,6 +1,6 @@
 name: Local cache restore
 description: >-
-  Restores a cache from the self-hosted runner's disk (ECLEAN_ACTIONS_CACHE), with no network
+  Restores a cache from the self-hosted runner's disk (CI_LOCAL_CACHE), with no network
   transfer, or from actions/cache elsewhere. Pair with local-cache/save. See docs/ci-standard.md.
 inputs:
   path:
@@ -14,7 +14,7 @@ inputs:
     required: false
     default: ${{ github.workspace }}
   backend:
-    description: "auto (the runner disk when ECLEAN_ACTIONS_CACHE is set, else actions/cache), local or remote"
+    description: "auto (the runner disk when CI_LOCAL_CACHE is set, else actions/cache), local or remote"
     required: false
     default: auto
   restore-keys:

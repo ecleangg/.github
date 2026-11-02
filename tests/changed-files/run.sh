@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # The runner's own pull request context must not leak into the simulated events below.
-unset GITHUB_HEAD_REF GITHUB_BASE_REF ECLEAN_FULL ECLEAN_BASE ECLEAN_CHANGED_FILES ECLEAN_ACTIONS_CACHE
+unset GITHUB_HEAD_REF GITHUB_BASE_REF ECLEAN_FULL ECLEAN_BASE ECLEAN_CHANGED_FILES CI_LOCAL_CACHE
 
 root="$(pwd)"
 cf="$root/.github/actions/changed-files"
@@ -101,9 +101,9 @@ if command -v cargo > /dev/null && command -v jq > /dev/null; then
   cd "$t/repo"
 fi
 
-export ECLEAN_ACTIONS_CACHE="$t/cache" GITHUB_REPOSITORY=ecleangg/selftest GITHUB_REF_NAME=main DEFAULT_BRANCH=main
+export CI_LOCAL_CACHE="$t/cache" GITHUB_REPOSITORY=ecleangg/selftest GITHUB_REF_NAME=main DEFAULT_BRANCH=main
 export INPUT_WORKING_DIRECTORY="$t/repo" INPUT_PATH=$'src\nmissing'
-mkdir -p "$ECLEAN_ACTIONS_CACHE"
+mkdir -p "$CI_LOCAL_CACHE"
 : > "$t/out"; INPUT_KEY=k-1 bash "$lc/lib/local-cache.sh" save
 check "local-cache: saved" true "$([ -f "$t/cache/ecleangg/selftest/main/k-1.tar" ] && echo true || echo false)"
 rm -rf src

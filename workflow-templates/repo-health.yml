@@ -15,9 +15,9 @@ jobs:
       issues: write
       actions: read
       security-events: read
-    uses: ecleangg/.github/.github/workflows/repo-health.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    uses: ecleangg/.github/.github/workflows/repo-health.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
   stale:
     permissions:
       issues: write
       pull-requests: write
-    uses: ecleangg/.github/.github/workflows/stale.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    uses: ecleangg/.github/.github/workflows/stale.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main

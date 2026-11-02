@@ -16,4 +16,4 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: ecleangg/.github/.github/workflows/pr-hygiene.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    uses: ecleangg/.github/.github/workflows/pr-hygiene.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
