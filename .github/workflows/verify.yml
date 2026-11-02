@@ -1,0 +1,139 @@
+# CI for a repo whose checks are one `verify` command (infra, config and docs repos: Ansible,
+# Compose, static files), plus a `CI` job that sums it up. See docs/ci-standard.md.
+#
+# - Draft pull requests skip it; marking the pull request ready for review runs it.
+# - The command runs after actions/changed-files, so it can use `ci-scope` and ECLEAN_FULL /
+#   ECLEAN_CHANGED_FILES to check only what a pull request changed.
+# - Tools come from the runner (the self-hosted runners have Python, uv, Node.js, Bun, Go, Rust,
+#   Docker, ShellCheck and the C toolchain installed); `uv tool` and pip caches are on their disk.
+name: Verify
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+      working-directory:
+        type: string
+        default: "."
+      command:
+        description: "Verify command (multi-line script); empty picks `bun run verify`, `cargo xtask verify` or `make verify`, in that order"
+        type: string
+        default: ""
+      env:
+        description: "Newline-separated NAME=value lines exported to every step (no secrets)"
+        type: string
+        default: ""
+      filters:
+        description: "actions/changed-files filters; the command runs only when `code` matches"
+        type: string
+        default: |
+          code: * !LICENSE* !.github/ISSUE_TEMPLATE/*
+      full-patterns:
+        description: "Extra globs that make a pull request check everything"
+        type: string
+        default: ""
+      cache-paths:
+        description: "Workspace paths kept between runs, relative to working-directory"
+        type: string
+        default: ""
+      cache-key:
+        description: "hashFiles pattern of the files whose content keys cache-paths"
+        type: string
+        default: "**/*.lock"
+      timeout-minutes:
+        type: number
+        default: 20
+    outputs:
+      result:
+        description: "success or failure"
+        value: ${{ jobs.ci.outputs.result }}
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: changes
+        uses: $/.github/actions/changed-files
+        with:
+          filters: ${{ inputs.filters }}
+          full-patterns: ${{ inputs.full-patterns }}
+      - name: Export env
+        id: run
+        env:
+          INPUT_ENV: ${{ inputs.env }}
+          MATCHES: ${{ steps.changes.outputs.matches }}
+        run: |
+          printf '%s\n' "$INPUT_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
+          code="$(jq -r '.code // true' <<< "$MATCHES")"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ "$code" = true ] || echo "Nothing to verify changed: skipping." >> "$GITHUB_STEP_SUMMARY"
+      - name: Restore caches
+        id: cache
+        if: steps.run.outputs.code == 'true' && inputs.cache-paths != ''
+        uses: $/.github/actions/local-cache/restore
+        with:
+          path: ${{ inputs.cache-paths }}
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key) }}-${{ github.sha }}
+          restore-keys: |
+            verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key) }}-
+            verify-${{ runner.os }}-
+      - name: Verify
+        if: steps.run.outputs.code == 'true'
+        env:
+          CMD: ${{ inputs.command }}
+        run: |
+          if [ -z "$CMD" ]; then
+            if [ -f package.json ] && jq -e '.scripts.verify' package.json > /dev/null; then CMD="bun run verify"
+            elif [ -f Cargo.toml ] && grep -q '^xtask' .cargo/config.toml 2> /dev/null; then CMD="cargo xtask verify"
+            elif [ -f Makefile ] && grep -q '^verify:' Makefile; then CMD="make verify"
+            else echo "::error::No verify command: set the command input"; exit 1
+            fi
+          fi
+          echo "Running: $CMD"
+          bash -euo pipefail -c "$CMD"
+      - name: Save caches
+        if: ${{ success() && inputs.cache-paths != '' && steps.cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch }}
+        uses: $/.github/actions/local-cache/save
+        with:
+          path: ${{ inputs.cache-paths }}
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key) }}-${{ github.sha }}
+
+  ci:
+    name: CI
+    needs: [verify]
+    if: ${{ !cancelled() && !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      result: ${{ steps.sum.outputs.result }}
+    steps:
+      - id: sum
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "verify: $RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*) echo "result=failure" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          esac
+          echo "result=success" >> "$GITHUB_OUTPUT"

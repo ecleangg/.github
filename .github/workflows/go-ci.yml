@@ -1,0 +1,190 @@
+# CI for a Go module: gofmt on the changed files, vet, lint and tests on the affected packages, extra
+# checks, a vulnerability audit, and a `CI` job that sums them up. See docs/ci-standard.md.
+#
+# - Draft pull requests skip every job; marking the pull request ready for review runs it.
+# - On pull requests `ci-go-packages` turns the changed files into the packages holding them plus
+#   every package importing them, directly or not ($PACKAGES; empty when no Go package changed).
+#   Pushes, schedules, manual runs and pull requests touching go.mod, go.sum or tool configuration
+#   check ./... .
+# - Go comes from the runner (the self-hosted runners have the distro's Go with GOTOOLCHAIN=auto,
+#   which fetches the go.mod version into the shared module cache); GitHub-hosted runners use
+#   actions/setup-go. Build and module caches are on the self-hosted runner's disk already.
+name: Go CI
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+      working-directory:
+        description: "Module root, relative to the repository root"
+        type: string
+        default: "."
+      env:
+        description: "Newline-separated NAME=value lines exported to every step (no secrets)"
+        type: string
+        default: ""
+      filters:
+        description: "actions/changed-files filters; steps run only when `code` matches"
+        type: string
+        default: |
+          code: * !*.md !docs/* !LICENSE* !.github/ISSUE_TEMPLATE/* !.github/*.md
+      full-patterns:
+        description: "Extra globs that make a pull request check everything"
+        type: string
+        default: ""
+      tools:
+        description: "Newline-separated `go install` targets pinned to a version (prebuilt into GOPATH/bin, kept in the shared cache), e.g. golang.org/x/vuln/cmd/govulncheck@v1.1.4"
+        type: string
+        default: ""
+      postgres:
+        description: "Postgres image to start for the tests (DATABASE_URL is exported); empty: none"
+        type: string
+        default: ""
+      format:
+        description: "Format check"
+        type: string
+        default: ci-scope --ext go --full 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }' -- sh -c 'out="$(gofmt -l "$@")"; [ -z "$out" ] || { echo "$out"; exit 1; }' gofmt
+      lint:
+        description: "Lint command; $PACKAGES holds the affected packages (or ./...)"
+        type: string
+        default: go vet $PACKAGES
+      test:
+        description: "Test command; $PACKAGES as for lint"
+        type: string
+        default: go test -race $PACKAGES
+      extra:
+        description: "More checks after the tests, as a multi-line script"
+        type: string
+        default: ""
+      audit:
+        description: "Vulnerability audit (e.g. govulncheck ./...); every non-draft event"
+        type: string
+        default: ""
+      timeout-minutes:
+        type: number
+        default: 30
+    outputs:
+      result:
+        description: "success or failure"
+        value: ${{ jobs.ci.outputs.result }}
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: changes
+        uses: $/.github/actions/changed-files
+        with:
+          filters: ${{ inputs.filters }}
+          full-patterns: ${{ inputs.full-patterns }}
+      - name: Set up Go (GitHub-hosted runners)
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.working-directory }}/go.mod
+      - name: Export env and the affected packages
+        id: run
+        env:
+          INPUT_ENV: ${{ inputs.env }}
+          MATCHES: ${{ steps.changes.outputs.matches }}
+        run: |
+          printf '%s\n' "$INPUT_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
+          go version
+          code="$(jq -r '.code // true' <<< "$MATCHES")"
+          if [ "$code" = true ]; then
+            packages="$(ci-go-packages | tr '\n' ' ' | sed 's/ $//')"
+            echo "PACKAGES=$packages" >> "$GITHUB_ENV"
+            [ -n "$packages" ] || code=false
+            echo "Packages: ${packages:-none}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: Install Go tools
+        if: steps.run.outputs.code == 'true' && inputs.tools != ''
+        env:
+          TOOLS: ${{ inputs.tools }}
+        run: |
+          while IFS= read -r tool; do
+            [ -n "$tool" ] || continue
+            go install "$tool"
+          done <<< "$TOOLS"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Postgres
+        id: postgres
+        if: steps.run.outputs.code == 'true' && inputs.postgres != ''
+        uses: $/.github/actions/postgres
+        with:
+          image: ${{ inputs.postgres }}
+      - name: Export DATABASE_URL
+        if: steps.postgres.outcome == 'success'
+        env:
+          URL: ${{ steps.postgres.outputs.url }}
+        run: echo "DATABASE_URL=$URL" >> "$GITHUB_ENV"
+      - parallel:
+          - name: Format
+            if: steps.changes.outputs.full == 'true' || steps.run.outputs.code == 'true'
+            env:
+              CMD: ${{ inputs.format }}
+            run: bash -euo pipefail -c "$CMD"
+          - name: Lint
+            if: steps.run.outputs.code == 'true' && inputs.lint != ''
+            env:
+              CMD: ${{ inputs.lint }}
+            run: bash -euo pipefail -c "$CMD"
+      - name: Test
+        if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.test != '' }}
+        env:
+          CMD: ${{ inputs.test }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Extra checks
+        if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.extra != '' }}
+        env:
+          CMD: ${{ inputs.extra }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Vulnerability audit
+        if: ${{ !cancelled() && inputs.audit != '' }}
+        env:
+          CMD: ${{ inputs.audit }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Stop Postgres
+        if: ${{ always() && steps.postgres.outputs.container != '' }}
+        env:
+          CONTAINER: ${{ steps.postgres.outputs.container }}
+        run: docker rm -f "$CONTAINER" > /dev/null
+
+  ci:
+    name: CI
+    needs: [verify]
+    if: ${{ !cancelled() && !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      result: ${{ steps.sum.outputs.result }}
+    steps:
+      - id: sum
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "verify: $RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*) echo "result=failure" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          esac
+          echo "result=success" >> "$GITHUB_OUTPUT"
