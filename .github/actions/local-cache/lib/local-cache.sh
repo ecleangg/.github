@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Local cache on a self-hosted runner's persistent disk, used by local-cache/restore and /save.
 #
-# Layout: $ECLEAN_ACTIONS_CACHE/<owner>/<repo>/<scope>/<key>.tar, one plain tar per entry (the disk is
+# Layout: $CI_LOCAL_CACHE/<owner>/<repo>/<scope>/<key>.tar, one plain tar per entry (the disk is
 # local, so compressing costs more than it saves). <scope> is the ref that saved the entry. A run reads
 # entries of its own ref first, then of the default branch, like GitHub's cache. Entries are immutable:
 # a key that exists is never written again. Writes go to a temporary file renamed into place, so
 # concurrent jobs never see half an entry. The oldest entries (by last use) are evicted when the whole
-# cache grows past ECLEAN_ACTIONS_CACHE_MAX_GB (default 40).
+# cache grows past CI_LOCAL_CACHE_MAX_GB (default 40).
 set -euo pipefail
 
 mode="${1:?restore or save}"
@@ -17,7 +17,7 @@ to_unix() { # Git Bash on Windows understands C:/ paths; tar wants them without 
   if command -v cygpath > /dev/null; then cygpath -u "$1"; else printf '%s' "$1"; fi
 }
 
-root="$(to_unix "$ECLEAN_ACTIONS_CACHE")/$(sanitize "${GITHUB_REPOSITORY%%/*}")/$(sanitize "${GITHUB_REPOSITORY#*/}")"
+root="$(to_unix "$CI_LOCAL_CACHE")/$(sanitize "${GITHUB_REPOSITORY%%/*}")/$(sanitize "${GITHUB_REPOSITORY#*/}")"
 workspace="$(to_unix "$INPUT_WORKING_DIRECTORY")"
 own_scope="$(sanitize "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-unknown}}")"
 default_scope="$(sanitize "${DEFAULT_BRANCH:-main}")"
@@ -72,10 +72,10 @@ restore() {
 
 evict() {
   local max_kb used_kb file
-  max_kb=$(( ${ECLEAN_ACTIONS_CACHE_MAX_GB:-40} * 1024 * 1024 ))
-  used_kb="$(du -sk "$(to_unix "$ECLEAN_ACTIONS_CACHE")" | cut -f1)"
+  max_kb=$(( ${CI_LOCAL_CACHE_MAX_GB:-40} * 1024 * 1024 ))
+  used_kb="$(du -sk "$(to_unix "$CI_LOCAL_CACHE")" | cut -f1)"
   [ "$used_kb" -gt "$max_kb" ] || return 0
-  find "$(to_unix "$ECLEAN_ACTIONS_CACHE")" -type f -name '*.tar' -printf '%T@ %k %p\n' | sort -n |
+  find "$(to_unix "$CI_LOCAL_CACHE")" -type f -name '*.tar' -printf '%T@ %k %p\n' | sort -n |
     while read -r _ kb file; do
       [ "$used_kb" -gt "$max_kb" ] || break
       rm -f "$file" && used_kb=$((used_kb - kb))

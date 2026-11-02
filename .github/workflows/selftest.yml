@@ -62,7 +62,7 @@ jobs:
       - name: Make a cache directory and something to cache
         run: |
           mkdir -p "$RUNNER_TEMP/eclean-cache" out
-          echo "ECLEAN_ACTIONS_CACHE=$RUNNER_TEMP/eclean-cache" >> "$GITHUB_ENV"
+          echo "CI_LOCAL_CACHE=$RUNNER_TEMP/eclean-cache" >> "$GITHUB_ENV"
           echo "$GITHUB_RUN_ID" > out/marker
       - uses: ./.github/actions/local-cache/save
         with:

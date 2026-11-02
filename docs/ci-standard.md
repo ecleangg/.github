@@ -18,7 +18,7 @@ input: a runner label (`ubuntu-24.04`) or a JSON array of labels.
 | GitHub-hosted | `ubuntu-24.04`, `ubuntu-slim` | Public repos: the self-hosted groups do not serve them. This repository's own self-test runs on `ubuntu-slim` |
 
 The Linux lanes share persistent caches on the host: cargo, rustup, sccache, bun, npm, go, uv, the
-runner tool cache, Playwright browsers, and `ECLEAN_ACTIONS_CACHE` (used by `actions/local-cache`).
+runner tool cache, Playwright browsers, and `CI_LOCAL_CACHE` (used by `actions/local-cache`).
 
 Installed on the runners: Node 26 LTS, Bun, Go (`GOTOOLCHAIN=auto`), rustup with stable, uv, gh, jq,
 ShellCheck, a C toolchain, CMake, Clang, ansible-lint, Docker with buildx, Playwright system libraries.
@@ -85,10 +85,10 @@ native column themselves.
 | What | Where | Details |
 | --- | --- | --- |
 | Tool caches (cargo, rustup, sccache, bun, npm, go, uv, toolcache, Playwright) | Runner disk, shared by the lanes | Nothing to configure |
-| Workspace paths (`cache-paths`, `build-cache-paths`) | `actions/local-cache` | `$ECLEAN_ACTIONS_CACHE/<owner>/<repo>/<ref>/<key>.tar`; reads the run's own ref first, then the default branch; entries are immutable; the oldest are evicted past `ECLEAN_ACTIONS_CACHE_MAX_GB` (40). Falls back to `actions/cache` where the variable is unset |
+| Workspace paths (`cache-paths`, `build-cache-paths`) | `actions/local-cache` | `$CI_LOCAL_CACHE/<owner>/<repo>/<ref>/<key>.tar`; reads the run's own ref first, then the default branch; entries are immutable; the oldest are evicted past `CI_LOCAL_CACHE_MAX_GB` (40). Falls back to `actions/cache` where the variable is unset |
 | Rust `target/` | `actions/local-cache` | Restored by every run, saved from the default branch once per toolchain and `Cargo.lock`. sccache covers the rest. Off with `cache-target: false` |
-| BuildKit layers (`docker-build.yml`) | `$ECLEAN_ACTIONS_CACHE/<owner>/<repo>/buildx/<name>` | Read by every run, written from the default branch; GitHub-hosted runners use the Actions cache |
-| Trivy vulnerability DB | `$ECLEAN_ACTIONS_CACHE/trivy-db/<day>` | One download per day per host |
+| BuildKit layers (`docker-build.yml`) | `$CI_LOCAL_CACHE/<owner>/<repo>/buildx/<name>` | Read by every run, written from the default branch; GitHub-hosted runners use the Actions cache |
+| Trivy vulnerability DB | `$CI_LOCAL_CACHE/trivy-db/<day>` | One download per day per host |
 | Scanner binaries (Trivy, actionlint, zizmor, TruffleHog, OSV-Scanner, Opengrep) | `$RUNNER_TOOL_CACHE/eclean-downloads/<sha256>` | Keyed by the pinned digest and re-verified with `sha256sum -c` on every use |
 
 Release jobs set `cache-mode: none`: a release never restores a cache another job could have written.
@@ -545,7 +545,7 @@ Permissions: `contents: read`.
 #### actions/local-cache
 
 Two actions, `local-cache/restore` and `local-cache/save`. They keep a cache on the self-hosted
-runner's disk (`ECLEAN_ACTIONS_CACHE`) with no network transfer, and use `actions/cache` where the
+runner's disk (`CI_LOCAL_CACHE`) with no network transfer, and use `actions/cache` where the
 variable is not set. Save never overwrites an existing key. Layout and eviction: see [Caching](#caching).
 
 | Input | Default | Meaning |
