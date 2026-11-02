@@ -83,7 +83,7 @@ jobs:
       - name: Verify attestation
         id: attest
         if: ${{ github.event_name == 'pull_request' && steps.decide.outputs.run-full == 'true' }}
-        uses: ecleangg/.github/.github/actions/verify-attestation@3099d6eaa2d5697edc68973d613ea5f0c7100c0a # main
+        uses: ecleangg/.github/.github/actions/verify-attestation@3b98d3f83403ebc7f179329edbe582bd5e3d911e # main
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           max-age-days: ${{ inputs.max-age-days }}
