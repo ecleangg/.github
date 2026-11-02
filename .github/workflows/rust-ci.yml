@@ -41,7 +41,7 @@ on:
         type: string
         default: ""
       postgres:
-        description: "Postgres image to start for the tests (DATABASE_URL is exported); empty: none"
+        description: "Postgres image to start for the tests (DATABASE_URL is set for the test and extra steps); empty: none"
         type: string
         default: ""
       format:
@@ -147,11 +147,6 @@ jobs:
         uses: $/.github/actions/postgres
         with:
           image: ${{ inputs.postgres }}
-      - name: Export DATABASE_URL
-        if: steps.postgres.outcome == 'success'
-        env:
-          URL: ${{ steps.postgres.outputs.url }}
-        run: echo "DATABASE_URL=$URL" >> "$GITHUB_ENV"
       - parallel:
           - name: Format
             if: steps.run.outputs.code == 'true' && inputs.format != ''
@@ -166,11 +161,13 @@ jobs:
       - name: Test
         if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.test != '' }}
         env:
+          DATABASE_URL: ${{ steps.postgres.outputs.url }}
           CMD: ${{ inputs.test }}
         run: bash -euo pipefail -c "$CMD"
       - name: Extra checks
         if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.extra != '' }}
         env:
+          DATABASE_URL: ${{ steps.postgres.outputs.url }}
           CMD: ${{ inputs.extra }}
         run: bash -euo pipefail -c "$CMD"
       - name: Dependency audit
