@@ -1,0 +1,5 @@
+self-hosted-runner:
+  # Blacksmith runner labels (https://docs.blacksmith.sh), not known to actionlint by default.
+  labels:
+    - blacksmith-2vcpu-ubuntu-2604
+    - blacksmith-2vcpu-ubuntu-2604-arm
