@@ -63,7 +63,7 @@ native column themselves.
 - `security.yml` runs on drafts: the secret scan and the workflow lint are day-one checks. `osv`,
   `opengrep` and `trivy-config` wait for ready for review.
 - The `ready_for_review` event starts full CI. Callers list it in `pull_request.types`.
-- The `CI` summary job of `bun-ci`, `rust-ci`, `go-ci` and `verify` is skipped on drafts too.
+- A skipped job counts as passed for required checks, so a draft never blocks on them.
 
 ## Changed-files policy
 
@@ -74,8 +74,10 @@ native column themselves.
 - Pushes, schedules, manual runs, merge queues, pull requests touching a lockfile, a toolchain pin or
   tool configuration (built-in list, extended with `full-patterns`), and pull requests changing more
   than `max-files` files (400) check everything.
-- A docs-only pull request (nothing matches the `code` filter) skips the steps; the `CI` summary job
-  still runs and reports success, so branch protection needs only that one check.
+- A docs-only pull request (nothing matches the `code` filter) skips the steps, but the `Verify` job
+  still runs and reports success, so `Verify` is the one check branch protection needs. There is no
+  separate summary job: each costs a runner start on a small pool. A repo calling several workflows
+  keeps one summary job of its own.
 - Audits (`audit` input) are not scoped by changes; they run on every non-draft event.
 
 ## Caching
@@ -133,7 +135,7 @@ Release jobs set `cache-mode: none`: a release never restores a cache another jo
 #### bun-ci
 
 `bun-ci.yml`: Bun/TypeScript. Jobs `verify` (install, format, lint and typecheck in parallel, tests,
-extra, audit, coverage), `build` (when `build` is set) and `CI` (sums them up for branch protection).
+extra, audit, coverage) and `build` (when `build` is set), in parallel.
 Permissions: `contents: read`, `packages: read`, `actions: read`, `pull-requests: write` (coverage
 comment).
 
@@ -413,7 +415,7 @@ jobs:
 #### pr-hygiene
 
 `pr-hygiene.yml`: Conventional Commits title check, automatic labels (when the repo has
-`.github/labeler.yml`) and an optional changeset reminder, for private repos without rulesets. No
+`.github/labeler.yml`) and an optional changeset check (for repos still on Changesets; the org releases with release-please), for private repos without rulesets. No
 checkout and no third-party actions besides the labeler. Runs on drafts. Call it on `pull_request` with
 types `opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled`. Permissions:
 `contents: read`, `pull-requests: write`.

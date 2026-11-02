@@ -1,6 +1,6 @@
 # CI for a Bun/TypeScript repo: verify (format, lint, type check, tests, extra checks, audit) and
-# build, in parallel, plus a `CI` job that sums them up for branch protection. See
-# docs/ci-standard.md for the caller.
+# build, in parallel. Verify runs on every non-draft event (its steps skip when no code changed), so
+# it is the check to require. See docs/ci-standard.md for the caller.
 #
 # - Draft pull requests skip every job (GitHub decides that from `if:`, without a runner); marking
 #   the pull request ready for review runs it.
@@ -111,10 +111,6 @@ on:
       build-timeout-minutes:
         type: number
         default: 20
-    outputs:
-      result:
-        description: "success or failure"
-        value: ${{ jobs.ci.outputs.result }}
 
 permissions: {}
 
@@ -279,24 +275,3 @@ jobs:
           path: ${{ inputs.build-cache-paths }}
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
           key: bun-build-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-${{ github.sha }}
-
-  ci:
-    name: CI
-    needs: [verify, build]
-    # Skipped on drafts (a skipped required check counts as passed); otherwise always reports.
-    if: ${{ !cancelled() && !github.event.pull_request.draft }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
-    timeout-minutes: 2
-    permissions: {}
-    outputs:
-      result: ${{ steps.sum.outputs.result }}
-    steps:
-      - id: sum
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "verify and build: $RESULTS"
-          case " $RESULTS " in
-            *" failure "* | *" cancelled "*) echo "result=failure" >> "$GITHUB_OUTPUT"; exit 1 ;;
-          esac
-          echo "result=success" >> "$GITHUB_OUTPUT"

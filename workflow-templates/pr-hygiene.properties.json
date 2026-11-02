@@ -1,7 +1,9 @@
 {
   "name": "ecleangg PR hygiene",
-  "description": "Conventional Commits title check, automatic labels and changeset reminder.",
+  "description": "Conventional Commits title check and automatic labels.",
   "iconName": "octicon git-pull-request",
-  "categories": ["Automation"],
+  "categories": [
+    "Automation"
+  ],
   "filePatterns": []
 }

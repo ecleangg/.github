@@ -21,7 +21,7 @@ jobs:
   security:
     permissions:
       contents: read
-    uses: ecleangg/.github/.github/workflows/security.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    uses: ecleangg/.github/.github/workflows/security.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
     with:
       workflows: true
       secrets: true

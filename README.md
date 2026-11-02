@@ -20,7 +20,7 @@ full input tables are in [docs/ci-standard.md](docs/ci-standard.md).
 | [`pr-gate.yml`](docs/ci-standard.md#pr-gate) | Draft and changed-files gate for repos with several CI jobs |
 | [`security.yml`](docs/ci-standard.md#security) | Secret scan, workflow lint, OSV, Opengrep, Trivy configuration scan |
 | [`trivy-image-scheduled.yml`](docs/ci-standard.md#trivy-image-scheduled) | Scheduled scan of a published image |
-| [`pr-hygiene.yml`](docs/ci-standard.md#pr-hygiene) | Conventional Commits title, labels, changeset reminder |
+| [`pr-hygiene.yml`](docs/ci-standard.md#pr-hygiene) | Conventional Commits title (release-please reads these), labels |
 | [`repo-health.yml`](docs/ci-standard.md#repo-health) | Weekly health check kept as one issue |
 | [`stale.yml`](docs/ci-standard.md#stale) | Stale issue and pull request handling |
 

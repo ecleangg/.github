@@ -22,7 +22,7 @@ jobs:
       packages: read
       actions: read
       pull-requests: write
-    uses: ecleangg/.github/.github/workflows/bun-ci.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    uses: ecleangg/.github/.github/workflows/bun-ci.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
     with:
       format: ci-scope --full "bun run format:check" -- bunx oxfmt --check
       lint: bunx oxlint
@@ -30,13 +30,14 @@ jobs:
       test: bunx vitest run --changed "$ECLEAN_BASE"
       build: bun run build
 
-  # Keeps a release pull request open from the changesets on the default branch (needs .changeset/config.json).
+  # Keeps a release pull request open from Conventional Commits; merging it tags the version and
+  # creates a draft GitHub release (needs release-please-config.json and .release-please-manifest.json).
   release:
     if: github.event_name == 'push'
     needs: ci
     permissions:
       contents: write
       pull-requests: write
-      packages: write
+      issues: write
       id-token: write
-    uses: ecleangg/.github-private/.github/workflows/release-changesets.yml@187eca2d0dbce0f09c376a5dbafb82120a955a99 # main
+    uses: ecleangg/.github-private/.github/workflows/release-please.yml@d45a83276297404fcd5d3e5238da2d85f638cc67 # main

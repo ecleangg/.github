@@ -1,5 +1,5 @@
 # CI for a Rust workspace: format, clippy and tests on the affected workspace members, extra checks,
-# a dependency audit, and a `CI` job that sums them up. See docs/ci-standard.md for the caller.
+# and a dependency audit, in one Verify job (the check to require). See docs/ci-standard.md for the caller.
 #
 # - Draft pull requests skip every job; marking the pull request ready for review runs it.
 # - On pull requests `ci-rust-packages` turns the changed files into `-p` arguments for the members
@@ -71,10 +71,6 @@ on:
       timeout-minutes:
         type: number
         default: 45
-    outputs:
-      result:
-        description: "success or failure"
-        value: ${{ jobs.ci.outputs.result }}
 
 permissions: {}
 
@@ -193,23 +189,3 @@ jobs:
           path: target
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
           key: rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-${{ hashFiles('**/Cargo.lock') }}
-
-  ci:
-    name: CI
-    needs: [verify]
-    if: ${{ !cancelled() && !github.event.pull_request.draft }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
-    timeout-minutes: 2
-    permissions: {}
-    outputs:
-      result: ${{ steps.sum.outputs.result }}
-    steps:
-      - id: sum
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "verify: $RESULTS"
-          case " $RESULTS " in
-            *" failure "* | *" cancelled "*) echo "result=failure" >> "$GITHUB_OUTPUT"; exit 1 ;;
-          esac
-          echo "result=success" >> "$GITHUB_OUTPUT"
