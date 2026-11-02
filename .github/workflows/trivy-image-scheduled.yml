@@ -17,7 +17,7 @@ on:
       runs-on:
         description: "Runner label"
         type: string
-        default: ubuntu-slim
+        default: blacksmith-2vcpu-ubuntu-2604
 
 permissions:
   contents: read
