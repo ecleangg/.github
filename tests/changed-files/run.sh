@@ -3,6 +3,9 @@
 # actions/local-cache (local backend) against throwaway repositories. Run from the repo root.
 set -euo pipefail
 
+# The runner's own pull request context must not leak into the simulated events below.
+unset GITHUB_HEAD_REF GITHUB_BASE_REF ECLEAN_FULL ECLEAN_BASE ECLEAN_CHANGED_FILES ECLEAN_ACTIONS_CACHE
+
 root="$(pwd)"
 cf="$root/.github/actions/changed-files"
 lc="$root/.github/actions/local-cache"
