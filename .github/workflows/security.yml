@@ -31,9 +31,9 @@ on:
         type: boolean
         default: false
       runs-on:
-        description: "Runner label for every job; Blacksmith x64; security tools do not run on arm"
+        description: 'Runner label, or a JSON array of labels, for every job; defaults to the self-hosted Linux pool (x64: the security tools do not run on arm)'
         type: string
-        default: blacksmith-2vcpu-ubuntu-2604
+        default: '["self-hosted","Linux","X64"]'
       path:
         description: "Directory to scan, relative to the repository root (osv, opengrep, trivy-config, workflows)"
         type: string
@@ -82,7 +82,7 @@ jobs:
   workflows:
     name: Workflows (actionlint, zizmor)
     if: ${{ inputs.workflows }}
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -109,9 +109,17 @@ jobs:
             ARM64) alint_arch=arm64; alint_sha256="$ACTIONLINT_SHA256_ARM64" ;;
             *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
           esac
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${alint_arch}.tar.gz"
-          echo "${alint_sha256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+          # Verified downloads are kept in the runner's tool cache (on the self-hosted runners a
+          # persistent disk), keyed by digest, so a version is fetched once.
+          cached="${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/eclean-downloads/${alint_sha256}"
+          if [ -f "$cached" ] && echo "${alint_sha256}  $cached" | sha256sum -c --status -; then
+            cp "$cached" "$RUNNER_TEMP/actionlint.tgz"
+          else
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" \
+              "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${alint_arch}.tar.gz"
+            echo "${alint_sha256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/actionlint.tgz" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+          fi
           tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/dl-actionlint" actionlint
           install -m 0755 "$RUNNER_TEMP/dl-actionlint/actionlint" "$RUNNER_TEMP/bin/actionlint"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -133,7 +141,18 @@ jobs:
           # -no-color keeps the log free of escape codes; the JSON feeds the summary table.
           mapfile -t files < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | sort)
           if [ "${#files[@]}" -gt 0 ]; then
-            actionlint -no-color -format '{{json .}}' "${files[@]}" > "$RUNNER_TEMP/actionlint.json"
+            # Generally available workflow syntax actionlint does not know yet (1.7.12): concurrency
+            # `queue`, `cache-mode`, background and parallel steps, and `$/` self-repository `uses`.
+            # Only those messages are ignored; drop each pattern once actionlint supports the key. A
+            # `wait`/`parallel` step has no `run` or `uses`, hence the fourth; a step that really lacks
+            # both is still rejected by GitHub when the workflow is loaded.
+            actionlint -no-color -format '{{json .}}' \
+              -ignore 'unexpected key "queue" for "concurrency" section' \
+              -ignore 'unexpected key "cache-mode" for ".+" section' \
+              -ignore 'unexpected key "(background|wait|wait-all|cancel|parallel)" for ".+" section' \
+              -ignore 'step must run script with "run" section or run action with "uses" section' \
+              -ignore 'specifying action "\$/[^"]+" in invalid format because ref is missing' \
+              "${files[@]}" > "$RUNNER_TEMP/actionlint.json"
             echo "actionlint exit code $?"
           fi
 
@@ -213,7 +232,7 @@ jobs:
   secrets:
     name: Secrets (TruffleHog)
     if: ${{ inputs.secrets }}
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: 14
     permissions:
       contents: read
@@ -241,9 +260,17 @@ jobs:
             ARM64) arch=arm64; sha256="$TRUFFLEHOG_SHA256_ARM64" ;;
             *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
           esac
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/trufflehog.tgz" \
-            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_${arch}.tar.gz"
-          echo "${sha256}  $RUNNER_TEMP/trufflehog.tgz" | sha256sum -c -
+          # Verified downloads are kept in the runner's tool cache (on the self-hosted runners a
+          # persistent disk), keyed by digest, so a version is fetched once.
+          cached="${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/eclean-downloads/${sha256}"
+          if [ -f "$cached" ] && echo "${sha256}  $cached" | sha256sum -c --status -; then
+            cp "$cached" "$RUNNER_TEMP/trufflehog.tgz"
+          else
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/trufflehog.tgz" \
+              "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_${arch}.tar.gz"
+            echo "${sha256}  $RUNNER_TEMP/trufflehog.tgz" | sha256sum -c -
+            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/trufflehog.tgz" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+          fi
           tar -xzf "$RUNNER_TEMP/trufflehog.tgz" -C "$RUNNER_TEMP/dl-trufflehog" trufflehog
           install -m 0755 "$RUNNER_TEMP/dl-trufflehog/trufflehog" "$RUNNER_TEMP/bin/trufflehog"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -304,8 +331,9 @@ jobs:
 
   osv:
     name: Dependencies (OSV-Scanner)
-    if: ${{ inputs.osv }}
-    runs-on: ${{ inputs.runs-on }}
+    # Drafts run only the day-one checks (workflows, secrets); this waits for ready for review.
+    if: ${{ inputs.osv && !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: 14
     permissions:
       contents: read
@@ -333,9 +361,17 @@ jobs:
             ARM64) arch=arm64; sha256="$OSV_SHA256_ARM64" ;;
             *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
           esac
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/osv-scanner" \
-            "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_${arch}"
-          echo "${sha256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          # Verified downloads are kept in the runner's tool cache (on the self-hosted runners a
+          # persistent disk), keyed by digest, so a version is fetched once.
+          cached="${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/eclean-downloads/${sha256}"
+          if [ -f "$cached" ] && echo "${sha256}  $cached" | sha256sum -c --status -; then
+            cp "$cached" "$RUNNER_TEMP/osv-scanner"
+          else
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/osv-scanner" \
+              "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_${arch}"
+            echo "${sha256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/osv-scanner" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+          fi
           install -m 0755 "$RUNNER_TEMP/osv-scanner" "$RUNNER_TEMP/bin/osv-scanner"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
@@ -457,8 +493,9 @@ jobs:
 
   opengrep:
     name: SAST (Opengrep, TypeScript and JavaScript)
-    if: ${{ inputs.opengrep }}
-    runs-on: ${{ inputs.runs-on }}
+    # Drafts run only the day-one checks (workflows, secrets); this waits for ready for review.
+    if: ${{ inputs.opengrep && !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: 14
     permissions:
       contents: read
@@ -497,9 +534,17 @@ jobs:
             ARM64) ogrep_asset=opengrep_manylinux_aarch64; sha256="$OPENGREP_SHA256_ARM64" ;;
             *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
           esac
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/opengrep" \
-            "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${ogrep_asset}"
-          echo "${sha256}  $RUNNER_TEMP/opengrep" | sha256sum -c -
+          # Verified downloads are kept in the runner's tool cache (on the self-hosted runners a
+          # persistent disk), keyed by digest, so a version is fetched once.
+          cached="${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/eclean-downloads/${sha256}"
+          if [ -f "$cached" ] && echo "${sha256}  $cached" | sha256sum -c --status -; then
+            cp "$cached" "$RUNNER_TEMP/opengrep"
+          else
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/opengrep" \
+              "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${ogrep_asset}"
+            echo "${sha256}  $RUNNER_TEMP/opengrep" | sha256sum -c -
+            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/opengrep" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+          fi
           install -m 0755 "$RUNNER_TEMP/opengrep" "$RUNNER_TEMP/bin/opengrep"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
@@ -620,8 +665,9 @@ jobs:
 
   trivy-config:
     name: Dockerfiles (Trivy misconfiguration)
-    if: ${{ inputs.trivy-config }}
-    runs-on: ${{ inputs.runs-on }}
+    # Drafts run only the day-one checks (workflows, secrets); this waits for ready for review.
+    if: ${{ inputs.trivy-config && !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: 14
     permissions:
       contents: read

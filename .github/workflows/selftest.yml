@@ -10,6 +10,7 @@ name: Self-test
 # with `enforce` to see the same jobs fail with blocking turned on.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -29,7 +30,8 @@ concurrency:
 jobs:
   parsers:
     name: Coverage parser unit tests
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,87 +39,93 @@ jobs:
           persist-credentials: false
       - run: node --test .github/actions/coverage-summary/parsers.test.js
 
-  attestation:
-    name: Attestation and git hooks
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+  helpers:
+    name: changed-files, ci-scope and local-cache helpers
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Script tests (attest, verify, installer, dispatcher)
-        run: bash tests/attest/run.sh
-      - name: Build a throwaway attested repository
-        env:
-          REPOSITORY: ${{ github.repository }}
+      - run: bash tests/changed-files/run.sh
+
+  local-cache:
+    name: local-cache actions (local and remote backends)
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Make a cache directory and something to cache
         run: |
-          set -euo pipefail
-          t="$RUNNER_TEMP/att"
-          mkdir -p "$t"
-          ssh-keygen -q -t ed25519 -N "" -C ci -f "$t/key"
-          printf 'ci@eclean.gg namespaces="eclean-verify" %s\n' "$(cut -d' ' -f1,2 "$t/key.pub")" > "$t/allowed"
-          git init -q --bare "$t/origin.git"
-          git init -q "$t/work"
-          cd "$t/work"
-          git config user.email ci@eclean.gg
-          git config user.name ci
-          git remote add origin "$t/origin.git"
-          echo a > a.txt
-          git add a.txt
-          git commit -qm init
-          bash "$GITHUB_WORKSPACE/scripts/eclean-attest" --cmd true --key "$t/key" --repo "$REPOSITORY"
-          echo b > a.txt
-          git commit -qam change
-      - name: Action accepts the attested commit
-        id: valid
-        uses: ./.github/actions/verify-attestation
+          mkdir -p "$RUNNER_TEMP/eclean-cache" out
+          echo "ECLEAN_ACTIONS_CACHE=$RUNNER_TEMP/eclean-cache" >> "$GITHUB_ENV"
+          echo "$GITHUB_RUN_ID" > out/marker
+      - uses: ./.github/actions/local-cache/save
         with:
-          working-directory: ${{ runner.temp }}/att/work
-          ref: HEAD~1
-          allowed-signers-source: ${{ runner.temp }}/att/allowed
-      - name: Action rejects the changed tree
-        id: invalid
-        uses: ./.github/actions/verify-attestation
+          path: out
+          key: selftest-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Remove it
+        run: rm -rf out
+      - id: local
+        uses: ./.github/actions/local-cache/restore
         with:
-          ref: HEAD
-          working-directory: ${{ runner.temp }}/att/work
-          allowed-signers-source: ${{ runner.temp }}/att/allowed
+          path: out
+          key: selftest-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: ./.github/actions/local-cache/save
+        with:
+          path: out
+          key: selftest-remote-${{ github.run_id }}-${{ github.run_attempt }}
+          backend: remote
+      - name: Remove it again
+        run: rm -rf out
+      - id: remote
+        uses: ./.github/actions/local-cache/restore
+        with:
+          path: out
+          key: selftest-remote-${{ github.run_id }}-${{ github.run_attempt }}
+          backend: remote
       - name: Assert
         env:
-          VALID: ${{ steps.valid.outputs.valid }}
-          INVALID: ${{ steps.invalid.outputs.valid }}
-          REASON: ${{ steps.invalid.outputs.reason }}
+          LOCAL_HIT: ${{ steps.local.outputs.cache-hit }}
+          LOCAL_BACKEND: ${{ steps.local.outputs.backend }}
+          REMOTE_HIT: ${{ steps.remote.outputs.cache-hit }}
+          REMOTE_BACKEND: ${{ steps.remote.outputs.backend }}
         run: |
-          echo "valid=$VALID invalid=$INVALID ($REASON)"
-          [ "$VALID" = true ] && [ "$INVALID" = false ]
+          echo "local: $LOCAL_BACKEND hit=$LOCAL_HIT; remote: $REMOTE_BACKEND hit=$REMOTE_HIT"
+          [ "$LOCAL_BACKEND" = local ] && [ "$LOCAL_HIT" = true ]
+          [ "$REMOTE_BACKEND" = remote ] && [ "$REMOTE_HIT" = true ]
+          [ "$(cat out/marker)" = "$GITHUB_RUN_ID" ]
 
   gate:
     name: PR gate
     permissions:
       contents: read
     uses: ./.github/workflows/pr-gate.yml
+    with:
+      runs-on: ubuntu-slim
 
   assert-gate:
     name: PR gate outputs
     needs: gate
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    runs-on: ubuntu-slim
     timeout-minutes: 2
     env:
       RUN_FULL: ${{ needs.gate.outputs.run-full }}
-      SKIP_VERIFY: ${{ needs.gate.outputs.skip-verify }}
-      DRAFT: ${{ needs.gate.outputs.draft }}
-      IS_DRAFT_PR: ${{ github.event.pull_request.draft }}
+      FULL: ${{ needs.gate.outputs.full }}
+      REASON: ${{ needs.gate.outputs.reason }}
+      MATCHES: ${{ needs.gate.outputs.matches }}
+      EVENT: ${{ github.event_name }}
     steps:
       - run: |
-          echo "run-full=$RUN_FULL skip-verify=$SKIP_VERIFY draft=$DRAFT (triggering PR draft=$IS_DRAFT_PR)"
-          # No attestation exists for these commits, so skip-verify is always false. draft mirrors
-          # whether the pull request that triggered this selftest run is itself a draft (e.g. a
-          # draft PR editing docs still triggers selftest.yml's own pull_request event).
-          want_draft=false
-          [ "$IS_DRAFT_PR" = true ] && want_draft=true
-          want_run_full=true
-          [ "$want_draft" = true ] && want_run_full=false
-          [ "$RUN_FULL" = "$want_run_full" ] && [ "$SKIP_VERIFY" = false ] && [ "$DRAFT" = "$want_draft" ]
+          echo "run-full=$RUN_FULL full=$FULL ($REASON) matches=$MATCHES"
+          [ "$RUN_FULL" = true ]
+          jq -e 'has("code")' <<< "$MATCHES"
+          # Only pull requests can be scoped to their changed files.
+          if [ "$EVENT" != pull_request ]; then [ "$FULL" = true ]; fi
 
   security-self:
     name: Security on this repo
@@ -131,10 +139,12 @@ jobs:
       opengrep: true
       trivy-config: true
       exclude: tests/fixtures
+      runs-on: ubuntu-slim
       concurrency-key: self
 
   security-clean:
     name: Security on clean fixtures
+    if: ${{ !github.event.pull_request.draft }}
     permissions:
       contents: read
     uses: ./.github/workflows/security.yml
@@ -146,10 +156,12 @@ jobs:
       trivy-config: true
       path: tests/fixtures/clean
       baseline: false
+      runs-on: ubuntu-slim
       concurrency-key: clean
 
   security-planted:
     name: Security on planted fixtures
+    if: ${{ !github.event.pull_request.draft }}
     permissions:
       contents: read
     uses: ./.github/workflows/security.yml
@@ -162,13 +174,14 @@ jobs:
       path: tests/fixtures/planted
       baseline: false
       report-only: ${{ inputs.enforce != true }}
+      runs-on: ubuntu-slim
       concurrency-key: planted
 
   assert-planted:
     name: Planted fixtures are detected
     needs: security-planted
-    if: ${{ !cancelled() && inputs.enforce != true }}
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    if: ${{ !cancelled() && inputs.enforce != true && !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     env:
       WORKFLOWS: ${{ needs.security-planted.outputs.workflows-blocking }}
@@ -193,7 +206,8 @@ jobs:
 
   coverage:
     name: Coverage summary action
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
     timeout-minutes: 10
     permissions:
       contents: read
@@ -276,7 +290,8 @@ jobs:
 
   sbom:
     name: SBOM action
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -300,7 +315,8 @@ jobs:
 
   image-build:
     name: Build image tarballs
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04 # Needs a Docker daemon.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -333,8 +349,9 @@ jobs:
 
   image-scan:
     name: Trivy image action
+    if: ${{ !github.event.pull_request.draft }}
     needs: image-build
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    runs-on: ubuntu-slim
     timeout-minutes: 14
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -422,6 +439,7 @@ jobs:
 
   image-scheduled:
     name: Scheduled image scan workflow
+    if: ${{ !github.event.pull_request.draft }}
     permissions:
       contents: read
       packages: read
@@ -429,12 +447,14 @@ jobs:
     with:
       # A public ghcr image of ours would be better, but none is guaranteed to exist; this is small.
       image: ghcr.io/trufflesecurity/trufflehog:3.99.7
+      runs-on: ubuntu-slim
 
   selftest:
     name: Self-test
-    needs: [parsers, attestation, gate, assert-gate, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
-    if: ${{ always() }}
-    runs-on: blacksmith-2vcpu-ubuntu-2604
+    needs: [parsers, helpers, local-cache, gate, assert-gate, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
+    # Drafts run only security-self's day-one checks.
+    if: ${{ always() && !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
     timeout-minutes: 2
     env:
       RESULTS: ${{ join(needs.*.result, ' ') }}
