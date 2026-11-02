@@ -32,6 +32,10 @@ on:
         description: "setup-bun `registries`, e.g. '@ecleangg:https://npm.pkg.github.com/|$NODE_AUTH_TOKEN'; the workflow token is NODE_AUTH_TOKEN (grant packages: read)"
         type: string
         default: ""
+      fetch-depth:
+        description: "Commits to fetch; 2 covers the pull request diff, 0 is the full history (tools that need the merge base)"
+        type: number
+        default: 2
       install:
         description: "Install command"
         type: string
@@ -135,7 +139,7 @@ jobs:
       - &checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2 # The pull request merge commit and its base parent.
+          fetch-depth: ${{ inputs.fetch-depth }} # 2: the pull request merge commit and its base parent.
           persist-credentials: false
       - &changes
         id: changes
