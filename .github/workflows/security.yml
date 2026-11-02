@@ -118,7 +118,7 @@ jobs:
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/actionlint.tgz" \
               "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${alint_arch}.tar.gz"
             echo "${alint_sha256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
-            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/actionlint.tgz" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+            if mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/actionlint.tgz" "$cached.$$"; then mv -f "$cached.$$" "$cached"; fi
           fi
           tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/dl-actionlint" actionlint
           install -m 0755 "$RUNNER_TEMP/dl-actionlint/actionlint" "$RUNNER_TEMP/bin/actionlint"
@@ -269,7 +269,7 @@ jobs:
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/trufflehog.tgz" \
               "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_${arch}.tar.gz"
             echo "${sha256}  $RUNNER_TEMP/trufflehog.tgz" | sha256sum -c -
-            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/trufflehog.tgz" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+            if mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/trufflehog.tgz" "$cached.$$"; then mv -f "$cached.$$" "$cached"; fi
           fi
           tar -xzf "$RUNNER_TEMP/trufflehog.tgz" -C "$RUNNER_TEMP/dl-trufflehog" trufflehog
           install -m 0755 "$RUNNER_TEMP/dl-trufflehog/trufflehog" "$RUNNER_TEMP/bin/trufflehog"
@@ -370,7 +370,7 @@ jobs:
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/osv-scanner" \
               "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_${arch}"
             echo "${sha256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
-            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/osv-scanner" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+            if mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/osv-scanner" "$cached.$$"; then mv -f "$cached.$$" "$cached"; fi
           fi
           install -m 0755 "$RUNNER_TEMP/osv-scanner" "$RUNNER_TEMP/bin/osv-scanner"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -543,7 +543,7 @@ jobs:
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/opengrep" \
               "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${ogrep_asset}"
             echo "${sha256}  $RUNNER_TEMP/opengrep" | sha256sum -c -
-            mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/opengrep" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+            if mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/opengrep" "$cached.$$"; then mv -f "$cached.$$" "$cached"; fi
           fi
           install -m 0755 "$RUNNER_TEMP/opengrep" "$RUNNER_TEMP/bin/opengrep"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"

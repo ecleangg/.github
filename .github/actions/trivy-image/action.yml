@@ -76,7 +76,7 @@ runs:
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" \
             "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${trivy_arch}.tar.gz"
           echo "${sha256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
-          mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/trivy.tgz" "$cached.$$" && mv -f "$cached.$$" "$cached" || true
+          if mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/trivy.tgz" "$cached.$$"; then mv -f "$cached.$$" "$cached"; fi
         fi
         tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP/trivy-dl" trivy
         install -m 0755 "$RUNNER_TEMP/trivy-dl/trivy" "$RUNNER_TEMP/trivy-bin/trivy"
