@@ -1,0 +1,222 @@
+# Weekly repo health check, kept as one tracking issue. Call it from a schedule (and
+# workflow_dispatch) in each repo. It reports:
+#   - standard files missing from the repo and not provided by the org's `.github` repo
+#   - SHA-pinned actions whose `# vX.Y.Z` comment is behind the latest release
+#   - workflows whose latest completed run on the default branch failed
+#   - open Dependabot alerts by severity ("unavailable" when the token cannot read them)
+# The issue (label `repo-health`, opened by github-actions[bot]) is created or updated while there
+# are problems, and closed with a comment when there are none. There is never more than one.
+name: Repo health
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+      label:
+        description: "Label of the tracking issue (created when missing)"
+        type: string
+        default: repo-health
+      title:
+        description: "Title of the tracking issue"
+        type: string
+        default: Repo health
+      check-dependabot:
+        description: "Count open Dependabot alerts"
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  health:
+    name: Repo health
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      security-events: read
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          LABEL: ${{ inputs.label }}
+          ISSUE_TITLE: ${{ inputs.title }}
+          CHECK_DEPENDABOT: ${{ inputs.check-dependabot }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { LABEL, ISSUE_TITLE } = process.env;
+            const status = (error) => error.status ?? 0;
+
+            const { data: info } = await github.rest.repos.get({ owner, repo });
+            const branch = info.default_branch;
+
+            // Paths on the default branch, and what the org `.github` repo provides.
+            const { data: tree } = await github.rest.git.getTree({ owner, repo, tree_sha: branch, recursive: 'true' });
+            const paths = tree.tree.map((entry) => entry.path);
+            const has = (re) => paths.some((p) => re.test(p));
+
+            const orgPaths = new Set();
+            for (const dir of ['', '.github', 'docs']) {
+              try {
+                const { data } = await github.rest.repos.getContent({ owner: 'ecleangg', repo: '.github', path: dir });
+                for (const item of data) orgPaths.add(item.path);
+              } catch (error) {
+                if (status(error) !== 404) throw error;
+              }
+            }
+            const orgHas = (re) => [...orgPaths].some((p) => re.test(p));
+
+            // 1. Standard files.
+            const standard = [
+              { name: 'README', own: /^README/i, org: null },
+              { name: 'CODEOWNERS', own: /^(\.github\/|docs\/)?CODEOWNERS$/, org: null },
+              { name: 'SECURITY.md', own: /^(\.github\/|docs\/)?SECURITY\.md$/i, org: /(^|\/)SECURITY\.md$/i },
+              { name: 'CONTRIBUTING.md', own: /^(\.github\/|docs\/)?CONTRIBUTING\.md$/i, org: /(^|\/)CONTRIBUTING\.md$/i },
+              { name: 'CODE_OF_CONDUCT.md', own: /^(\.github\/|docs\/)?CODE_OF_CONDUCT\.md$/i, org: /(^|\/)CODE_OF_CONDUCT\.md$/i },
+              { name: 'Issue templates', own: /^\.github\/ISSUE_TEMPLATE\//i, org: /(^|\/)ISSUE_TEMPLATE\//i },
+              { name: 'Pull request template', own: /^(\.github\/|docs\/)?(PULL_REQUEST_TEMPLATE(\.md|\/)|pull_request_template\.md)/i, org: /(^|\/)(PULL_REQUEST_TEMPLATE(\.md|\/)|pull_request_template\.md)/i },
+            ];
+            if (!info.private) standard.splice(1, 0, { name: 'LICENSE', own: /^(LICENSE|LICENCE|COPYING)/i, org: null });
+            const missing = standard.filter((f) => !has(f.own) && !(f.org && orgHas(f.org))).map((f) => f.name);
+
+            // 2. Outdated actions.
+            const latestCache = new Map();
+            const latestRelease = async (slug) => {
+              if (!latestCache.has(slug)) {
+                const [o, r] = slug.split('/');
+                try {
+                  const { data } = await github.rest.repos.getLatestRelease({ owner: o, repo: r });
+                  latestCache.set(slug, data.tag_name);
+                } catch (error) {
+                  if (status(error) !== 404) core.warning(`Latest release of ${slug}: ${error.message}`);
+                  latestCache.set(slug, null);
+                }
+              }
+              return latestCache.get(slug);
+            };
+            const bare = (v) => v.replace(/^v/i, '');
+            // `# v4` counts as current while the latest release is v4.x.y.
+            const isCurrent = (comment, latest) => {
+              const a = bare(comment), b = bare(latest);
+              return a === b || b.startsWith(`${a}.`);
+            };
+
+            const usesRe = /^\s*(?:-\s*)?uses:\s*['"]?([^\s@'"#]+)@([0-9a-f]{40})['"]?\s+#\s*(v?\d[\w.+-]*)/;
+            const outdated = new Map();
+            const workflowFiles = paths.filter((p) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(p));
+            for (const path of workflowFiles) {
+              const { data } = await github.rest.repos.getContent({
+                owner, repo, path, ref: branch, mediaType: { format: 'raw' },
+              });
+              for (const line of String(data).split('\n')) {
+                const m = usesRe.exec(line);
+                if (!m) continue;
+                const [, target, , comment] = m;
+                if (/^(\.\/|\$\/|docker:\/\/)/.test(target)) continue;
+                const slug = target.split('/').slice(0, 2).join('/');
+                if (!slug.includes('/')) continue;
+                const latest = await latestRelease(slug);
+                if (latest && !isCurrent(comment, latest)) {
+                  outdated.set(`${path}|${target}|${comment}`, { path, target, comment, latest });
+                }
+              }
+            }
+
+            // 3. Failing default-branch CI.
+            const workflows = await github.paginate(github.rest.actions.listRepoWorkflows, { owner, repo, per_page: 100 });
+            const failing = [];
+            for (const wf of workflows.filter((w) => w.state === 'active')) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: wf.id, branch, status: 'completed', per_page: 1,
+              });
+              const run = data.workflow_runs[0];
+              if (run && ['failure', 'timed_out', 'startup_failure'].includes(run.conclusion)) {
+                failing.push({ name: wf.name, conclusion: run.conclusion, url: run.html_url });
+              }
+            }
+
+            // 4. Dependabot alerts.
+            let alerts = null;
+            if (process.env.CHECK_DEPENDABOT === 'true') {
+              try {
+                const open = await github.paginate(github.rest.dependabot.listAlertsForRepo, { owner, repo, state: 'open', per_page: 100 });
+                alerts = {};
+                for (const a of open) {
+                  const sev = a.security_advisory?.severity ?? 'unknown';
+                  alerts[sev] = (alerts[sev] ?? 0) + 1;
+                }
+              } catch (error) {
+                core.info(`Dependabot alerts unavailable (HTTP ${status(error)}): ${error.message}`);
+              }
+            }
+
+            // Report.
+            const sections = [];
+            sections.push('## Standard files\n' + (missing.length
+              ? missing.map((n) => `- Missing: ${n}`).join('\n')
+              : 'All present (in the repo or provided by the org `.github` repo).'));
+            sections.push('## Outdated actions\n' + (outdated.size
+              ? [...outdated.values()].map((o) => `- \`${o.target}\` ${o.comment}, latest ${o.latest} (${o.path})`).join('\n')
+              : 'None.'));
+            sections.push(`## Failing CI on \`${branch}\`\n` + (failing.length
+              ? failing.map((f) => `- [${f.name}](${f.url}): ${f.conclusion}`).join('\n')
+              : 'None.'));
+            let alertCount = 0;
+            if (process.env.CHECK_DEPENDABOT !== 'true') {
+              sections.push('## Dependabot alerts\nNot checked.');
+            } else if (alerts === null) {
+              sections.push('## Dependabot alerts\nUnavailable (the token cannot read them).');
+            } else {
+              alertCount = Object.values(alerts).reduce((a, b) => a + b, 0);
+              sections.push('## Dependabot alerts\n' + (alertCount
+                ? Object.entries(alerts).map(([s, n]) => `- ${s}: ${n}`).join('\n')
+                : 'No open alerts.'));
+            }
+            const problems = missing.length + outdated.size + failing.length + alertCount;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              'Weekly repo health report. This issue is maintained by a workflow; it closes itself when everything is clean.',
+              '',
+              `Last checked: ${new Date().toISOString().replace(/\.\d+Z$/, 'Z')} ([run](${runUrl}))`,
+              '',
+              sections.join('\n\n'),
+            ].join('\n');
+            await core.summary.addRaw(body, true).write();
+
+            // Tracking issue: label, then the single open issue by github-actions[bot].
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: LABEL });
+            } catch (error) {
+              if (status(error) !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: LABEL, color: 'fbca04', description: 'Weekly repo health report' });
+            }
+            const candidates = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: LABEL, per_page: 100,
+            });
+            const existing = candidates
+              .filter((i) => !i.pull_request && i.user?.login === 'github-actions[bot]')
+              .sort((a, b) => a.number - b.number);
+            const [issue, ...duplicates] = existing;
+
+            if (problems > 0) {
+              if (issue) {
+                await github.rest.issues.update({ owner, repo, issue_number: issue.number, title: ISSUE_TITLE, body });
+                core.info(`Updated #${issue.number}.`);
+              } else {
+                const { data } = await github.rest.issues.create({ owner, repo, title: ISSUE_TITLE, body, labels: [LABEL] });
+                core.info(`Opened #${data.number}.`);
+              }
+            } else if (issue) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${body}\n\nNo problems found, closing.` });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed', state_reason: 'completed' });
+              core.info(`Closed #${issue.number}.`);
+            }
+            for (const dup of duplicates) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: dup.number, body: `Duplicate of #${issue.number}, closing.` });
+              await github.rest.issues.update({ owner, repo, issue_number: dup.number, state: 'closed', state_reason: 'not_planned' });
+            }
