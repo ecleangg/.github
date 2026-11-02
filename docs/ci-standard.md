@@ -190,7 +190,7 @@ and the `CI` job. Toolchain from `rust-toolchain.toml` through rustup, rustc beh
 | `filters` | `code: * !*.md ...` | `actions/changed-files` filters |
 | `full-patterns` | empty | Extra globs that make a pull request check everything |
 | `tools` | empty | Comma-separated cargo tools for `taiki-e/install-action`, e.g. `cargo-nextest,cargo-deny` |
-| `postgres` | empty | Postgres image for the tests (`DATABASE_URL` is exported) |
+| `postgres` | empty | Postgres image for the tests (`DATABASE_URL` is set for the test and extra steps) |
 | `format` | `cargo fmt --all --check` | Format check |
 | `lint` | `cargo clippy $PACKAGES --all-targets --locked -- -D warnings` | `$PACKAGES` is `-p a -p b` or `--workspace` |
 | `test` | `cargo test $PACKAGES --locked` | Test command |
@@ -224,7 +224,7 @@ version). Permissions: `contents: read`.
 | `filters` | `code: * !*.md ...` | `actions/changed-files` filters |
 | `full-patterns` | empty | Extra globs that make a pull request check everything |
 | `tools` | empty | `go install` targets pinned to a version, e.g. `golang.org/x/vuln/cmd/govulncheck@v1.1.4` |
-| `postgres` | empty | Postgres image for the tests (`DATABASE_URL` is exported) |
+| `postgres` | empty | Postgres image for the tests (`DATABASE_URL` is set for the test and extra steps) |
 | `format` | gofmt on changed files (`ci-scope --ext go`) | Format check |
 | `lint` | `go vet $PACKAGES` | `$PACKAGES` is the affected packages or `./...` |
 | `test` | `go test -race $PACKAGES` | Test command |
