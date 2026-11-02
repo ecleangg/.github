@@ -63,6 +63,14 @@ on:
         description: "Vulnerability audit (e.g. govulncheck ./...); every non-draft event"
         type: string
         default: ""
+      coverage-file:
+        description: "Go coverage profile the test command writes (e.g. coverage.out from -coverprofile), for actions/coverage-summary; empty: none"
+        type: string
+        default: ""
+      coverage-name:
+        description: "Name of the coverage comment and baseline artifact; defaults to the repository name"
+        type: string
+        default: ""
       timeout-minutes:
         type: number
         default: 30
@@ -81,6 +89,8 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
+      actions: read # Coverage baseline download.
+      pull-requests: write # Coverage comment.
     defaults:
       run:
         shell: bash
@@ -155,6 +165,13 @@ jobs:
           DATABASE_URL: ${{ steps.postgres.outputs.url }}
           CMD: ${{ inputs.extra }}
         run: bash -euo pipefail -c "$CMD"
+      - name: Coverage summary
+        if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.coverage-file != '' && hashFiles(format('{0}/{1}', inputs.working-directory, inputs.coverage-file)) != '' }}
+        uses: $/.github/actions/coverage-summary
+        with:
+          name: ${{ inputs.coverage-name != '' && inputs.coverage-name || github.event.repository.name }}
+          format: go
+          file: ${{ inputs.working-directory }}/${{ inputs.coverage-file }}
       - name: Vulnerability audit
         if: ${{ !cancelled() && inputs.audit != '' }}
         env:

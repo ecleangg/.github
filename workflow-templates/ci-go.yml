@@ -19,6 +19,8 @@ jobs:
   ci:
     permissions:
       contents: read
+      actions: read # Coverage baseline.
+      pull-requests: write # Coverage comment.
     uses: ecleangg/.github/.github/workflows/go-ci.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
     with:
       tools: golang.org/x/vuln/cmd/govulncheck@v1.1.4

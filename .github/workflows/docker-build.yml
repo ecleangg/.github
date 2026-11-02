@@ -33,6 +33,10 @@ on:
         description: "Newline-separated build arguments (no secrets)"
         type: string
         default: ""
+      packages-secret:
+        description: "Pass the workflow token as the BuildKit secret `github_packages_token` (reads @ecleangg packages; grant packages: read)"
+        type: boolean
+        default: false
       filters:
         description: "actions/changed-files filters; the build runs only when `image` matches"
         type: string
@@ -56,6 +60,7 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
+      packages: read # @ecleangg packages, with packages-secret.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,7 +76,14 @@ jobs:
         env:
           NAME: ${{ inputs.name }}
           WRITE: ${{ github.ref_name == github.event.repository.default_branch }}
+          PACKAGES_SECRET: ${{ inputs.packages-secret }}
+          TOKEN: ${{ github.token }}
         run: |
+          {
+            echo "secrets<<ECLEAN_EOF"
+            if [ "$PACKAGES_SECRET" = true ]; then echo "github_packages_token=$TOKEN"; fi
+            echo "ECLEAN_EOF"
+          } >> "$GITHUB_OUTPUT"
           if [ -n "${ECLEAN_ACTIONS_CACHE:-}" ] && [ -w "$ECLEAN_ACTIONS_CACHE" ]; then
             dir="$ECLEAN_ACTIONS_CACHE/$GITHUB_REPOSITORY/buildx/$NAME"
             mkdir -p "$dir"
@@ -99,6 +111,8 @@ jobs:
           tags: ${{ inputs.name }}:ci
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
+          github-token: ""
+          secrets: ${{ steps.cache.outputs.secrets }}
       - name: Swap in the new layer cache
         if: success() && steps.cache.outputs.dir != '' && steps.cache.outputs.to != ''
         env:

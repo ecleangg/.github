@@ -230,6 +230,8 @@ version). Permissions: `contents: read`.
 | `test` | `go test -race $PACKAGES` | Test command |
 | `extra` | empty | More checks (multi-line script) |
 | `audit` | empty | e.g. `govulncheck ./...`; every non-draft event |
+| `coverage-file` | empty | Go coverage profile (`-coverprofile`) for `actions/coverage-summary` |
+| `coverage-name` | repository name | Coverage comment and baseline artifact name |
 | `timeout-minutes` | `30` | Job limit |
 
 ```yaml
@@ -237,6 +239,8 @@ jobs:
   ci:
     permissions:
       contents: read
+      actions: read # Coverage baseline.
+      pull-requests: write # Coverage comment.
     uses: ecleangg/.github/.github/workflows/go-ci.yml@<sha> # <ref>
     with:
       tools: golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -284,6 +288,7 @@ Permissions: `contents: read`.
 | `target` | empty | Build stage |
 | `build-args` | empty | Newline-separated build arguments (no secrets) |
 | `filters` | `image: * !*.md ...` | The build runs only when `image` matches |
+| `packages-secret` | `false` | Pass the workflow token as the BuildKit secret `github_packages_token` |
 | `scan` | `true` | Scan the built image (HIGH and CRITICAL fail) |
 | `timeout-minutes` | `45` | Job limit |
 
@@ -292,6 +297,7 @@ jobs:
   image:
     permissions:
       contents: read
+      packages: read
     uses: ecleangg/.github/.github/workflows/docker-build.yml@<sha> # <ref>
     with:
       name: booky
