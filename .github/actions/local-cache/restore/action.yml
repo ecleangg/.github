@@ -1,0 +1,60 @@
+name: Local cache restore
+description: >-
+  Restores a cache from the self-hosted runner's disk (ECLEAN_ACTIONS_CACHE), with no network
+  transfer, or from actions/cache elsewhere. Pair with local-cache/save. See docs/ci-standard.md.
+inputs:
+  path:
+    description: "Newline-separated paths or globs, relative to working-directory"
+    required: true
+  key:
+    description: "Exact key"
+    required: true
+  working-directory:
+    description: "Directory the paths are relative to"
+    required: false
+    default: ${{ github.workspace }}
+  backend:
+    description: "auto (the runner disk when ECLEAN_ACTIONS_CACHE is set, else actions/cache), local or remote"
+    required: false
+    default: auto
+  restore-keys:
+    description: "Newline-separated key prefixes tried in order when the exact key misses"
+    required: false
+    default: ""
+outputs:
+  cache-hit:
+    description: "true on an exact key match"
+    value: ${{ steps.backend.outputs.local == 'true' && steps.local.outputs.cache-hit || steps.remote.outputs.cache-hit || 'false' }}
+  matched-key:
+    description: "Key of the restored entry, empty on a miss"
+    value: ${{ steps.backend.outputs.local == 'true' && steps.local.outputs.matched-key || steps.remote.outputs.cache-matched-key }}
+  backend:
+    description: "local or remote"
+    value: ${{ steps.backend.outputs.local == 'true' && 'local' || 'remote' }}
+runs:
+  using: composite
+  steps:
+    - id: backend
+      shell: bash
+      env:
+        INPUT_BACKEND: ${{ inputs.backend }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: bash "$GITHUB_ACTION_PATH/../lib/decide.sh"
+    - id: local
+      if: steps.backend.outputs.local == 'true'
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_KEY: ${{ inputs.key }}
+        INPUT_RESTORE_KEYS: ${{ inputs.restore-keys }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "$GITHUB_ACTION_PATH/../lib/local-cache.sh" restore
+    - id: remote
+      if: steps.backend.outputs.local != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.backend.outputs.paths }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}

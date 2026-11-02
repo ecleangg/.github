@@ -1,0 +1,173 @@
+# Pull request hygiene: Conventional Commits title, automatic labels and a changeset reminder, for
+# pull requests in a private repo on the Free plan (no rulesets). Call it on pull_request with the
+# types opened, edited, synchronize, reopened, ready_for_review, labeled and unlabeled, and make
+# the jobs required in branch protection.
+#
+# - The metadata checks (title, labels, changeset) are cheap API calls and run on drafts too.
+# - No checkout and no third-party actions: the checks are actions/github-script.
+# - The labeler job skips itself when the repo has no .github/labeler.yml.
+name: PR hygiene
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+      types:
+        description: "Comma-separated Conventional Commits types allowed in the title"
+        type: string
+        default: feat,fix,docs,refactor,perf,test,build,ci,chore,revert
+      require-lowercase:
+        description: "Require the subject to start with a lowercase letter"
+        type: boolean
+        default: true
+      labeler:
+        description: "Run actions/labeler when the repo has .github/labeler.yml"
+        type: boolean
+        default: true
+      changesets:
+        description: "Require a changeset (.changeset/*.md) or an exemption"
+        type: boolean
+        default: false
+      no-release-label:
+        description: "Label that exempts a pull request from needing a changeset"
+        type: string
+        default: no release
+      exempt-authors:
+        description: "Comma-separated bot logins exempt from the changeset check"
+        type: string
+        default: renovate[bot],dependabot[bot],github-actions[bot]
+
+permissions: {}
+
+jobs:
+  title:
+    name: PR title
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          TYPES: ${{ inputs.types }}
+          REQUIRE_LOWERCASE: ${{ inputs.require-lowercase }}
+        with:
+          script: |
+            const title = process.env.PR_TITLE || '';
+            const types = process.env.TYPES.split(',').map((t) => t.trim()).filter(Boolean);
+            const lowercase = process.env.REQUIRE_LOWERCASE === 'true';
+            const problems = [];
+
+            const match = /^([a-z]+)(?:\(([^()\s][^()]*)\))?(!)?: (.+)$/.exec(title);
+            if (!match) {
+              problems.push('The title does not match `type(scope)!: subject`.');
+            } else {
+              const [, type, , , subject] = match;
+              if (!types.includes(type)) {
+                problems.push(`Type \`${type}\` is not allowed. Use one of: ${types.join(', ')}.`);
+              }
+              if (lowercase && /^\p{Lu}/u.test(subject)) {
+                problems.push('The subject must start with a lowercase letter.');
+              }
+              if (subject.trimEnd().endsWith('.')) {
+                problems.push('The subject must not end with a period.');
+              }
+            }
+
+            const summary = core.summary.addHeading('PR title', 3).addRaw(`Title: \`${title}\``, true);
+            if (problems.length === 0) {
+              await summary.addRaw('Valid Conventional Commits title.', true).write();
+              return;
+            }
+            const example = `${types[0] || 'feat'}(api): add retry to the export job`;
+            const list = problems.map((p) => `- ${p}`).join('\n');
+            await summary
+              .addRaw(`${list}\n\nFormat: \`type(scope)!: subject\` (scope and \`!\` optional). Example: \`${example}\``, true)
+              .write();
+            core.setFailed(`Invalid PR title "${title}"\n${problems.join('\n')}\nExpected: type(scope)!: subject, e.g. "${example}"`);
+
+  labeler:
+    name: Labeler
+    if: ${{ inputs.labeler }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - id: config
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            try {
+              await github.rest.repos.getContent({
+                ...context.repo,
+                path: '.github/labeler.yml',
+                ref: context.payload.pull_request.base.ref,
+              });
+              core.setOutput('exists', 'true');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.info('No .github/labeler.yml in the repo; skipping.');
+              core.setOutput('exists', 'false');
+            }
+      - if: ${{ steps.config.outputs.exists == 'true' }}
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          configuration-path: .github/labeler.yml
+          sync-labels: true
+
+  changeset:
+    name: Changeset
+    if: ${{ inputs.changesets }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          NO_RELEASE_LABEL: ${{ inputs.no-release-label }}
+          EXEMPT_AUTHORS: ${{ inputs.exempt-authors }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const exemptAuthors = process.env.EXEMPT_AUTHORS.split(',').map((a) => a.trim().toLowerCase()).filter(Boolean);
+
+            const exemption = (() => {
+              if (process.env.HEAD_REF.startsWith('changeset-release/')) return 'the changesets release pull request';
+              if (exemptAuthors.includes(process.env.PR_AUTHOR.toLowerCase())) return `exempt author ${process.env.PR_AUTHOR}`;
+              if (pr.labels.some((l) => l.name === process.env.NO_RELEASE_LABEL)) return `label "${process.env.NO_RELEASE_LABEL}"`;
+              return null;
+            })();
+            if (exemption) {
+              core.info(`Passing: ${exemption}.`);
+              await core.summary.addRaw(`Changeset not required: ${exemption}.`, true).write();
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            const found = files.find(
+              (f) => /^\.changeset\/[^/]+\.md$/.test(f.filename)
+                && f.filename !== '.changeset/README.md'
+                && f.status !== 'removed',
+            );
+            if (found) {
+              core.info(`Passing: ${found.filename}.`);
+              await core.summary.addRaw(`Changeset found: \`${found.filename}\`.`, true).write();
+              return;
+            }
+
+            const message = `This pull request has no changeset. Run \`bun changeset\` and commit the generated file, or add the "${process.env.NO_RELEASE_LABEL}" label if it needs no release.`;
+            await core.summary.addRaw(message, true).write();
+            core.setFailed(message);

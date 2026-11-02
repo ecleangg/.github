@@ -1,0 +1,215 @@
+# CI for a Rust workspace: format, clippy and tests on the affected workspace members, extra checks,
+# a dependency audit, and a `CI` job that sums them up. See docs/ci-standard.md for the caller.
+#
+# - Draft pull requests skip every job; marking the pull request ready for review runs it.
+# - On pull requests `ci-rust-packages` turns the changed files into `-p` arguments for the members
+#   holding them and every member depending on them; it prints nothing when no member changed.
+#   Pushes, schedules, manual runs and pull requests touching Cargo.lock, a Cargo.toml, the toolchain
+#   pin or tool configuration check the whole workspace (`--workspace`).
+# - The toolchain comes from rust-toolchain.toml through rustup (on the self-hosted runners in the
+#   shared RUSTUP_HOME), rustc runs behind the runner's sccache, and `target` is kept on the runner's
+#   disk between runs (actions/local-cache): saved from the default branch once per toolchain and
+#   Cargo.lock (compiled dependencies are what it saves; sccache covers the rest).
+name: Rust CI
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+      working-directory:
+        description: "Workspace root, relative to the repository root"
+        type: string
+        default: "."
+      env:
+        description: "Newline-separated NAME=value lines exported to every step (no secrets)"
+        type: string
+        default: ""
+      filters:
+        description: "actions/changed-files filters; steps run only when `code` matches"
+        type: string
+        default: |
+          code: * !*.md !docs/* !LICENSE* !.github/ISSUE_TEMPLATE/* !.github/*.md
+      full-patterns:
+        description: "Extra globs that make a pull request check everything"
+        type: string
+        default: ""
+      tools:
+        description: "Comma-separated cargo tools for taiki-e/install-action (prebuilt binaries, kept in CARGO_HOME), e.g. cargo-nextest,cargo-deny"
+        type: string
+        default: ""
+      postgres:
+        description: "Postgres image to start for the tests (DATABASE_URL is set for the test and extra steps); empty: none"
+        type: string
+        default: ""
+      format:
+        description: "Format check"
+        type: string
+        default: cargo fmt --all --check
+      lint:
+        description: 'Lint command; $PACKAGES holds the affected members ("-p a -p b" or --workspace)'
+        type: string
+        default: cargo clippy $PACKAGES --all-targets --locked -- -D warnings
+      test:
+        description: "Test command; $PACKAGES as for lint"
+        type: string
+        default: cargo test $PACKAGES --locked
+      extra:
+        description: "More checks after the tests, as a multi-line script"
+        type: string
+        default: ""
+      audit:
+        description: "Dependency audit (e.g. cargo deny check advisories); every non-draft event"
+        type: string
+        default: ""
+      cache-target:
+        description: "Keep target/ between runs"
+        type: boolean
+        default: true
+      timeout-minutes:
+        type: number
+        default: 45
+    outputs:
+      result:
+        description: "success or failure"
+        value: ${{ jobs.ci.outputs.result }}
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: changes
+        uses: $/.github/actions/changed-files
+        with:
+          filters: ${{ inputs.filters }}
+          full-patterns: ${{ inputs.full-patterns }}
+      - name: Export env and the affected members
+        id: run
+        env:
+          INPUT_ENV: ${{ inputs.env }}
+          MATCHES: ${{ steps.changes.outputs.matches }}
+        run: |
+          printf '%s\n' "$INPUT_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
+          code="$(jq -r '.code // true' <<< "$MATCHES")"
+          if [ "$code" = true ]; then
+            packages="$(ci-rust-packages)"
+            echo "PACKAGES=$packages" >> "$GITHUB_ENV"
+            # No member changed (only workflow or root files): nothing for clippy and tests.
+            [ -n "$packages" ] || code=false
+            echo "Members: ${packages:-none}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: Toolchain
+        if: steps.run.outputs.code == 'true'
+        run: |
+          # rustup installs the rust-toolchain.toml pin (into the shared RUSTUP_HOME on our runners).
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
+          cargo --version
+          if command -v sccache > /dev/null && [ -n "${RUSTC_WRAPPER:-}" ]; then sccache --zero-stats > /dev/null || true; fi
+      - name: Install cargo tools
+        if: steps.run.outputs.code == 'true' && inputs.tools != ''
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+        with:
+          tool: ${{ inputs.tools }}
+      - name: Restore target
+        id: cache
+        if: steps.run.outputs.code == 'true' && inputs.cache-target
+        uses: $/.github/actions/local-cache/restore
+        with:
+          path: target
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-
+      - name: Postgres
+        id: postgres
+        if: steps.run.outputs.code == 'true' && inputs.postgres != ''
+        uses: $/.github/actions/postgres
+        with:
+          image: ${{ inputs.postgres }}
+      - parallel:
+          - name: Format
+            if: steps.run.outputs.code == 'true' && inputs.format != ''
+            env:
+              CMD: ${{ inputs.format }}
+            run: bash -euo pipefail -c "$CMD"
+          - name: Lint
+            if: steps.run.outputs.code == 'true' && inputs.lint != ''
+            env:
+              CMD: ${{ inputs.lint }}
+            run: bash -euo pipefail -c "$CMD"
+      - name: Test
+        if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.test != '' }}
+        env:
+          DATABASE_URL: ${{ steps.postgres.outputs.url }}
+          CMD: ${{ inputs.test }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Extra checks
+        if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.extra != '' }}
+        env:
+          DATABASE_URL: ${{ steps.postgres.outputs.url }}
+          CMD: ${{ inputs.extra }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Dependency audit
+        if: ${{ !cancelled() && inputs.audit != '' }}
+        env:
+          CMD: ${{ inputs.audit }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: sccache stats
+        if: ${{ !cancelled() && steps.run.outputs.code == 'true' }}
+        run: |
+          if command -v sccache > /dev/null && [ -n "${RUSTC_WRAPPER:-}" ]; then
+            { echo '```'; sccache --show-stats; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+      - name: Stop Postgres
+        if: ${{ always() && steps.postgres.outputs.container != '' }}
+        env:
+          CONTAINER: ${{ steps.postgres.outputs.container }}
+        run: docker rm -f "$CONTAINER" > /dev/null
+      - name: Save target
+        if: ${{ success() && steps.run.outputs.code == 'true' && inputs.cache-target && steps.cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch }}
+        uses: $/.github/actions/local-cache/save
+        with:
+          path: target
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-${{ hashFiles('**/Cargo.lock') }}
+
+  ci:
+    name: CI
+    needs: [verify]
+    if: ${{ !cancelled() && !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      result: ${{ steps.sum.outputs.result }}
+    steps:
+      - id: sum
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "verify: $RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*) echo "result=failure" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          esac
+          echo "result=success" >> "$GITHUB_OUTPUT"

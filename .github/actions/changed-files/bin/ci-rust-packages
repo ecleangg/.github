@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# ci-rust-packages: cargo package arguments for clippy and tests, run from the workspace root.
+#   full run        --workspace
+#   changed files   `-p name` for every workspace member holding a changed file, plus every member
+#                   that depends on one of them, directly or not. Prints nothing when no member changed.
+#                   Falls back to --workspace when jq is missing.
+#
+#   pkgs="$(ci-rust-packages)"; [ -z "$pkgs" ] || cargo clippy $pkgs --all-targets --locked
+set -euo pipefail
+
+if [ "${ECLEAN_FULL:-true}" != false ] || [ ! -f "${ECLEAN_CHANGED_FILES:-}" ] || ! command -v jq > /dev/null; then
+  echo "--workspace"
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+cargo metadata --format-version 1 --no-deps --locked |
+  jq -r --arg root "$root" --rawfile changed "$ECLEAN_CHANGED_FILES" '
+    def norm: gsub("\\\\"; "/");
+    ($root | norm) as $r
+    | [.packages[] | {name, dir: (.manifest_path | norm | sub("/Cargo.toml$"; "") | ltrimstr($r) | ltrimstr("/")),
+                      deps: [.dependencies[] | select(.path != null) | .name]}] as $pkgs
+    | ($changed | split("\n") | map(select(length > 0))) as $files
+    # A file belongs to the member with the longest directory prefix.
+    | [ $files[] as $f
+        | [ $pkgs[] | .dir as $d | select($d == "" or ($f | startswith($d + "/"))) ]
+        | max_by(.dir | length) // empty | .name ] | unique as $hit
+    # Members depending on a hit member, until nothing new is added.
+    | def closure($set):
+        ([ $pkgs[] | select(any(.deps[]; . as $d | $set | index($d))) | .name ] + $set | unique) as $next
+        | if ($next | length) == ($set | length) then $set else closure($next) end;
+      closure($hit) | map("-p " + .) | join(" ")'

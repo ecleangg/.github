@@ -1,0 +1,7 @@
+{
+  "name": "ecleangg Go CI",
+  "description": "Format, vet, tests and vulnerability audit through the shared go-ci workflow, plus release-please releases.",
+  "iconName": "octicon checklist",
+  "categories": ["Go"],
+  "filePatterns": ["^go\\.mod$"]
+}

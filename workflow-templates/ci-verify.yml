@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [$default-branch]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Drafts skip it; marking the pull request ready for review runs it. Docs-only changes skip the steps.
+  verify:
+    permissions:
+      contents: read
+    uses: ecleangg/.github/.github/workflows/verify.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    with:
+      command: make verify

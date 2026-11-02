@@ -1,5 +1,11 @@
-self-hosted-runner:
-  # Blacksmith runner labels (https://docs.blacksmith.sh), not known to actionlint by default.
-  labels:
-    - blacksmith-2vcpu-ubuntu-2604
-    - blacksmith-2vcpu-ubuntu-2604-arm
+# Generally available workflow syntax actionlint (1.7.12) does not know yet: concurrency `queue`,
+# `cache-mode`, background and parallel steps, and `$/` self-repository `uses`. Only those messages
+# are ignored, the same patterns security.yml passes; drop each one once actionlint supports the key.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+      - 'unexpected key "cache-mode" for ".+" section'
+      - 'unexpected key "(background|wait|wait-all|cancel|parallel)" for ".+" section'
+      - 'step must run script with "run" section or run action with "uses" section'
+      - 'specifying action "\$/[^"]+" in invalid format because ref is missing'

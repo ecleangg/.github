@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [$default-branch]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Drafts skip it; marking the pull request ready for review runs it. Docs-only changes skip the steps.
+  ci:
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      pull-requests: write
+    uses: ecleangg/.github/.github/workflows/bun-ci.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    with:
+      format: ci-scope --full "bun run format:check" -- bunx oxfmt --check
+      lint: bunx oxlint
+      typecheck: bun run typecheck
+      test: bunx vitest run --changed "$ECLEAN_BASE"
+      build: bun run build
+
+  # Keeps a release pull request open from the changesets on the default branch (needs .changeset/config.json).
+  release:
+    if: github.event_name == 'push'
+    needs: ci
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: write
+      id-token: write
+    uses: ecleangg/.github-private/.github/workflows/release-changesets.yml@187eca2d0dbce0f09c376a5dbafb82120a955a99 # main

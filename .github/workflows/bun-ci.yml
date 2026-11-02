@@ -1,0 +1,302 @@
+# CI for a Bun/TypeScript repo: verify (format, lint, type check, tests, extra checks, audit) and
+# build, in parallel, plus a `CI` job that sums them up for branch protection. See
+# docs/ci-standard.md for the caller.
+#
+# - Draft pull requests skip every job (GitHub decides that from `if:`, without a runner); marking
+#   the pull request ready for review runs it.
+# - A pull request that only touches files outside the `code` filter (docs) skips the steps.
+# - On pull requests, commands written with `ci-scope` (actions/changed-files) see only the changed
+#   files; `ECLEAN_BASE` lets tools find related tests themselves (`vitest run --changed "$ECLEAN_BASE"`).
+#   Pushes, schedules, manual runs and pull requests touching a lockfile or tool configuration run
+#   everything.
+# - Workspace caches (cache-paths) live on the self-hosted runner's disk (actions/local-cache);
+#   Bun itself is installed on those runners, and its package cache is on their disk already.
+name: Bun CI
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+      working-directory:
+        description: "Directory of the Bun project, relative to the repository root"
+        type: string
+        default: "."
+      bun-version-file:
+        description: "File setup-bun reads the Bun version from, relative to working-directory"
+        type: string
+        default: package.json
+      registries:
+        description: "setup-bun `registries`, e.g. '@ecleangg:https://npm.pkg.github.com/|$NODE_AUTH_TOKEN'; the workflow token is NODE_AUTH_TOKEN (grant packages: read)"
+        type: string
+        default: ""
+      fetch-depth:
+        description: "Commits to fetch; 2 covers the pull request diff, 0 is the full history (tools that need the merge base)"
+        type: number
+        default: 2
+      install:
+        description: "Install command"
+        type: string
+        default: bun install --frozen-lockfile
+      env:
+        description: "Newline-separated NAME=value lines exported to every step (no secrets)"
+        type: string
+        default: ""
+      filters:
+        description: "actions/changed-files filters; steps run only when `code` matches"
+        type: string
+        default: |
+          code: * !*.md !docs/* !LICENSE* !.github/ISSUE_TEMPLATE/* !.github/*.md
+      full-patterns:
+        description: "Extra globs that make a pull request check everything"
+        type: string
+        default: ""
+      format:
+        description: 'Format check, e.g. ci-scope --full "bun run format:check" -- bunx oxfmt --check'
+        type: string
+        default: ""
+      lint:
+        description: "Lint command(s); runs in parallel with format and typecheck"
+        type: string
+        default: ""
+      typecheck:
+        description: "Type check command(s)"
+        type: string
+        default: ""
+      playwright-browsers:
+        description: "Browsers to install before the tests, e.g. chromium firefox webkit (system libraries are on the runner)"
+        type: string
+        default: ""
+      test:
+        description: "Test command(s)"
+        type: string
+        default: ""
+      extra:
+        description: "More checks after the tests, as a multi-line script"
+        type: string
+        default: ""
+      audit:
+        description: "Dependency audit command; runs on every non-draft event, not scoped by changes"
+        type: string
+        default: ""
+      coverage-file:
+        description: "Coverage report for actions/coverage-summary (empty: none)"
+        type: string
+        default: ""
+      coverage-format:
+        description: "lcov, go or vitest-json"
+        type: string
+        default: lcov
+      coverage-name:
+        description: "Name of the coverage comment and baseline artifact; defaults to the repository name"
+        type: string
+        default: ""
+      cache-paths:
+        description: "Workspace paths kept between verify runs, relative to working-directory (e.g. .svelte-kit, node_modules/.cache)"
+        type: string
+        default: ""
+      build:
+        description: "Build command(s); empty skips the build job"
+        type: string
+        default: ""
+      build-cache-paths:
+        description: "Workspace paths kept between build runs, relative to working-directory"
+        type: string
+        default: ""
+      verify-timeout-minutes:
+        type: number
+        default: 30
+      build-timeout-minutes:
+        type: number
+        default: 20
+    outputs:
+      result:
+        description: "success or failure"
+        value: ${{ jobs.ci.outputs.result }}
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: ${{ inputs.verify-timeout-minutes }}
+    permissions:
+      contents: read
+      packages: read # @ecleangg packages from GitHub Packages.
+      actions: read # Coverage baseline download.
+      pull-requests: write # Coverage comment.
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      NODE_AUTH_TOKEN: ${{ github.token }}
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ inputs.fetch-depth }} # 2: the pull request merge commit and its base parent.
+          persist-credentials: false
+      - &changes
+        id: changes
+        uses: $/.github/actions/changed-files
+        with:
+          filters: ${{ inputs.filters }}
+          full-patterns: ${{ inputs.full-patterns }}
+      - &env
+        name: Export env
+        id: run
+        env:
+          INPUT_ENV: ${{ inputs.env }}
+          MATCHES: ${{ steps.changes.outputs.matches }}
+        run: |
+          printf '%s\n' "$INPUT_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
+          code="$(jq -r '.code // true' <<< "$MATCHES")"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ "$code" = true ] || echo "No code changed: skipping." >> "$GITHUB_STEP_SUMMARY"
+      # The self-hosted runners have Bun installed; GitHub-hosted runners set it up.
+      - &setup-bun
+        if: steps.run.outputs.code == 'true' && runner.environment == 'github-hosted'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: ${{ inputs.working-directory }}/${{ inputs.bun-version-file }}
+          registries: ${{ inputs.registries }}
+      - name: Restore workspace caches
+        id: cache
+        if: steps.run.outputs.code == 'true' && inputs.cache-paths != ''
+        uses: $/.github/actions/local-cache/restore
+        with:
+          path: ${{ inputs.cache-paths }}
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: bun-verify-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            bun-verify-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-
+            bun-verify-${{ runner.os }}-
+      - &install
+        name: Install dependencies
+        id: install
+        if: steps.run.outputs.code == 'true'
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: bash -euo pipefail -c "$INSTALL"
+      - name: Install Playwright browsers
+        if: steps.run.outputs.code == 'true' && inputs.playwright-browsers != ''
+        env:
+          BROWSERS: ${{ inputs.playwright-browsers }}
+        run: |
+          # shellcheck disable=SC2086 # One word per browser.
+          bunx playwright install $BROWSERS
+      - parallel:
+          - name: Format
+            if: steps.run.outputs.code == 'true' && inputs.format != ''
+            env:
+              CMD: ${{ inputs.format }}
+            run: bash -euo pipefail -c "$CMD"
+          - name: Lint
+            if: steps.run.outputs.code == 'true' && inputs.lint != ''
+            env:
+              CMD: ${{ inputs.lint }}
+            run: bash -euo pipefail -c "$CMD"
+          - name: Type check
+            if: steps.run.outputs.code == 'true' && inputs.typecheck != ''
+            env:
+              CMD: ${{ inputs.typecheck }}
+            run: bash -euo pipefail -c "$CMD"
+      - name: Test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.test != '' }}
+        env:
+          CMD: ${{ inputs.test }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Extra checks
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.extra != '' }}
+        env:
+          CMD: ${{ inputs.extra }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Dependency audit
+        if: ${{ !cancelled() && inputs.audit != '' && steps.install.outcome == 'success' }}
+        env:
+          CMD: ${{ inputs.audit }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Coverage summary
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.coverage-file != '' && hashFiles(format('{0}/{1}', inputs.working-directory, inputs.coverage-file)) != '' }}
+        uses: $/.github/actions/coverage-summary
+        with:
+          name: ${{ inputs.coverage-name != '' && inputs.coverage-name || github.event.repository.name }}
+          format: ${{ inputs.coverage-format }}
+          file: ${{ inputs.working-directory }}/${{ inputs.coverage-file }}
+      - name: Save workspace caches
+        if: ${{ success() && inputs.cache-paths != '' && steps.cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch }}
+        uses: $/.github/actions/local-cache/save
+        with:
+          path: ${{ inputs.cache-paths }}
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: bun-verify-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-${{ github.sha }}
+
+  build:
+    name: Build
+    if: ${{ !github.event.pull_request.draft && inputs.build != '' }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: ${{ inputs.build-timeout-minutes }}
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      NODE_AUTH_TOKEN: ${{ github.token }}
+    steps:
+      - *checkout
+      - *changes
+      - *env
+      - *setup-bun
+      - name: Restore build caches
+        id: cache
+        if: steps.run.outputs.code == 'true' && inputs.build-cache-paths != ''
+        uses: $/.github/actions/local-cache/restore
+        with:
+          path: ${{ inputs.build-cache-paths }}
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: bun-build-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            bun-build-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-
+            bun-build-${{ runner.os }}-
+      - *install
+      - name: Build
+        if: steps.run.outputs.code == 'true'
+        env:
+          CMD: ${{ inputs.build }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Save build caches
+        if: ${{ success() && inputs.build-cache-paths != '' && steps.cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch }}
+        uses: $/.github/actions/local-cache/save
+        with:
+          path: ${{ inputs.build-cache-paths }}
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: bun-build-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-${{ github.sha }}
+
+  ci:
+    name: CI
+    needs: [verify, build]
+    # Skipped on drafts (a skipped required check counts as passed); otherwise always reports.
+    if: ${{ !cancelled() && !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      result: ${{ steps.sum.outputs.result }}
+    steps:
+      - id: sum
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "verify and build: $RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*) echo "result=failure" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          esac
+          echo "result=success" >> "$GITHUB_OUTPUT"

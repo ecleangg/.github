@@ -1,107 +1,69 @@
-# Draft and attestation gate for a repo's CI. Call it first and condition the heavy jobs on its
-# outputs; see docs/local-first.md for the caller pattern.
-#   run-full     true unless the event is a draft pull request
-#   skip-verify  true for a non-draft pull request whose head tree carries a valid attestation
-#   skip-e2e     true when that attestation also records an end-to-end run (suites verify,e2e)
-#   draft        true for a draft pull request
+# Draft and changed-files gate for a repo's CI. Call it first and make the heavy jobs need it; see
+# docs/ci-standard.md for the caller pattern.
+#
+# On a draft pull request the gate job is skipped by its `if:` (GitHub decides that without a
+# runner), so every job that needs it is skipped too: drafts run only the cheap security checks.
+# Marking the pull request ready for review (`ready_for_review`) starts the full run.
+#   run-full  true when the gate ran (any event but a draft pull request)
+#   full      true when everything has to be checked (push, schedule, manual run, or a pull request
+#             touching a lockfile, toolchain pin or tool configuration)
+#   matches   JSON object, one boolean per `filters` name: fromJSON(needs.gate.outputs.matches).rust
 name: PR gate
 
 on:
   workflow_call:
     inputs:
-      max-age-days:
-        description: "Attestations older than this many days are ignored"
+      filters:
+        description: "Newline-separated `name: glob !glob ...` lines, see actions/changed-files"
         type: string
-        default: "7"
-      allowed-signers-source:
-        description: "owner/repo@ref (or a file path) of the allowed_signers file"
+        default: |
+          code: * !*.md !docs/* !LICENSE* !.github/ISSUE_TEMPLATE/* !.github/*.md
+      full-patterns:
+        description: "Extra newline-separated globs that make a pull request run everything"
         type: string
-        default: ecleangg/.github@main
-      audit-max-age-days:
-        description: "Attestations older than this many days no longer let CI skip dependency audits (advisories change without the tree changing)"
-        type: string
-        default: "1"
+        default: ""
       runs-on:
-        description: "Runner label for the gate job; defaults to Blacksmith x64"
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
         type: string
-        default: blacksmith-2vcpu-ubuntu-2604
-      command-hint:
-        description: "Command shown in the summary when no attestation applies"
-        type: string
-        default: eclean-attest
+        default: '["self-hosted","Linux","X64"]'
     outputs:
       run-full:
-        description: "true unless the event is a draft pull request"
+        description: "true when the gate ran, i.e. the event is not a draft pull request"
         value: ${{ jobs.gate.outputs.run-full }}
-      skip-audit:
-        description: "true when a valid attestation is also younger than audit-max-age-days, so CI may skip dependency audits"
-        value: ${{ jobs.gate.outputs.skip-audit }}
-      skip-verify:
-        description: "true when a valid attestation lets CI skip lint, format, typecheck and tests"
-        value: ${{ jobs.gate.outputs.skip-verify }}
-      skip-e2e:
-        description: "true when a valid attestation also records an end-to-end run, so CI may skip the end-to-end job"
-        value: ${{ jobs.gate.outputs.skip-e2e }}
-      draft:
-        description: "true for a draft pull request"
-        value: ${{ jobs.gate.outputs.draft }}
+      full:
+        description: "true when everything has to be checked"
+        value: ${{ jobs.gate.outputs.full }}
+      reason:
+        description: "Why `full` is true, or `changed files`"
+        value: ${{ jobs.gate.outputs.reason }}
+      matches:
+        description: "JSON object, one boolean per filter name"
+        value: ${{ jobs.gate.outputs.matches }}
 
 permissions: {}
 
 jobs:
   gate:
     name: Gate
-    runs-on: ${{ inputs.runs-on }}
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: 5
     permissions:
       contents: read
     outputs:
-      run-full: ${{ steps.decide.outputs.run-full }}
-      skip-verify: ${{ steps.final.outputs.skip-verify }}
-      skip-audit: ${{ steps.final.outputs.skip-audit }}
-      skip-e2e: ${{ steps.final.outputs.skip-e2e }}
-      draft: ${{ steps.decide.outputs.draft }}
+      run-full: "true"
+      full: ${{ steps.changes.outputs.full }}
+      reason: ${{ steps.changes.outputs.reason }}
+      matches: ${{ steps.changes.outputs.matches }}
     steps:
-      - id: decide
-        env:
-          EVENT: ${{ github.event_name }}
-          IS_DRAFT: ${{ github.event.pull_request.draft }}
-        run: |
-          draft=false
-          if [ "$EVENT" = pull_request ] && [ "$IS_DRAFT" = true ]; then draft=true; fi
-          {
-            echo "draft=$draft"
-            if [ "$draft" = true ]; then echo "run-full=false"; else echo "run-full=true"; fi
-          } >> "$GITHUB_OUTPUT"
-          if [ "$draft" = true ]; then echo "Draft pull request: only the cheap checks run." >> "$GITHUB_STEP_SUMMARY"; fi
-      - name: Check out the pull request head
-        if: ${{ github.event_name == 'pull_request' && steps.decide.outputs.run-full == 'true' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The merge commit's first parent is the base branch, so two commits are the whole diff.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
           persist-credentials: false
-      - name: Verify attestation
-        id: attest
-        if: ${{ github.event_name == 'pull_request' && steps.decide.outputs.run-full == 'true' }}
-        uses: ecleangg/.github/.github/actions/verify-attestation@3b98d3f83403ebc7f179329edbe582bd5e3d911e # main
+          sparse-checkout: .github
+      - id: changes
+        uses: $/.github/actions/changed-files
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          max-age-days: ${{ inputs.max-age-days }}
-          allowed-signers-source: ${{ inputs.allowed-signers-source }}
-          command-hint: ${{ inputs.command-hint }}
-      - id: final
-        env:
-          VALID: ${{ steps.attest.outputs.valid }}
-          ATTESTED_AT: ${{ steps.attest.outputs.time }}
-          SUITES: ${{ steps.attest.outputs.suites }}
-          AUDIT_MAX_AGE: ${{ inputs.audit-max-age-days }}
-        run: |
-          skip=false audit=false e2e=false
-          if [ "$VALID" = true ]; then
-            skip=true
-            case ",$SUITES," in *,e2e,*) e2e=true ;; esac
-            # Audits read advisory databases that change without the tree changing, so only a fresh attestation covers them.
-            at="$(date -u -d "$ATTESTED_AT" +%s 2>/dev/null || echo 0)"
-            if [ "$at" -gt 0 ] && [ $(( $(date -u +%s) - at )) -le $(( AUDIT_MAX_AGE * 86400 )) ]; then audit=true; fi
-          fi
-          { echo "skip-verify=$skip"; echo "skip-audit=$audit"; echo "skip-e2e=$e2e"; } >> "$GITHUB_OUTPUT"
+          filters: ${{ inputs.filters }}
+          full-patterns: ${{ inputs.full-patterns }}

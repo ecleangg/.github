@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# ci-scope: run a lint, format or test command on the changed files only, or in full.
+#
+#   ci-scope [--ext 'ts|tsx|svelte'] [--glob 'src/*'] [--dir web] [--full 'bun run lint'] [--no-files] -- cmd [args...]
+#
+# Needs actions/changed-files earlier in the job (it sets ECLEAN_FULL and ECLEAN_CHANGED_FILES).
+#   full run        runs --full through bash, or `cmd args` when --full is not given
+#   changed files   runs `cmd args <files>` with the changed files that match --ext/--glob, below
+#                   --dir (paths made relative to it, run from it); prints a skip and exits 0 when
+#                   none match. Long lists are split over several runs (xargs).
+#   --no-files      runs `cmd args` unchanged, once, when at least one file matches. For tools that
+#                   find related work themselves from ECLEAN_BASE (`vitest run --changed "$ECLEAN_BASE"`).
+set -euo pipefail
+
+ext="" dir="" full_cmd="" no_files=false
+globs=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ext) ext="$2"; shift 2 ;;
+    --glob) globs+=("$2"); shift 2 ;;
+    --dir) dir="${2%/}"; shift 2 ;;
+    --full) full_cmd="$2"; shift 2 ;;
+    --no-files) no_files=true; shift ;;
+    --) shift; break ;;
+    *) echo "ci-scope: unknown option $1" >&2; exit 2 ;;
+  esac
+done
+[ $# -gt 0 ] || { echo "ci-scope: no command after --" >&2; exit 2; }
+
+if [ "${ECLEAN_FULL:-true}" != false ] || [ ! -f "${ECLEAN_CHANGED_FILES:-}" ]; then
+  if [ -n "$full_cmd" ]; then
+    echo "ci-scope: full run: $full_cmd"
+    exec bash -c "$full_cmd"
+  fi
+  echo "ci-scope: full run: $*"
+  exec "$@"
+fi
+
+files=()
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  if [ -n "$dir" ]; then
+    case "$file" in "$dir"/*) file="${file#"$dir"/}" ;; *) continue ;; esac
+  fi
+  if [ -n "$ext" ] && ! [[ "$file" =~ \.($ext)$ ]]; then continue; fi
+  if [ ${#globs[@]} -gt 0 ]; then
+    hit=false
+    for glob in "${globs[@]}"; do
+      # shellcheck disable=SC2053 # The glob is meant to be a pattern.
+      if [[ "$file" == $glob ]]; then hit=true; break; fi
+    done
+    [ "$hit" = true ] || continue
+  fi
+  files+=("$file")
+done < "$ECLEAN_CHANGED_FILES"
+
+[ -z "$dir" ] || cd "$dir"
+if [ ${#files[@]} -eq 0 ]; then
+  echo "ci-scope: no changed files match, skipping: $*"
+  exit 0
+fi
+if [ "$no_files" = true ]; then
+  echo "ci-scope: ${#files[@]} matching changed files: $*"
+  exec "$@"
+fi
+echo "ci-scope: ${#files[@]} changed files: $*"
+printf '%s\0' "${files[@]}" | xargs -0 "$@"

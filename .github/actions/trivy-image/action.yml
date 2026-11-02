@@ -67,9 +67,17 @@ runs:
           ARM64) trivy_arch=ARM64; sha256="$TRIVY_SHA256_ARM64" ;;
           *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
         esac
-        curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" \
-          "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${trivy_arch}.tar.gz"
-        echo "${sha256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
+        # Verified downloads are kept in the runner's tool cache (on the self-hosted runners a
+        # persistent disk), keyed by digest, so a version is fetched once.
+        cached="${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/eclean-downloads/${sha256}"
+        if [ -f "$cached" ] && echo "${sha256}  $cached" | sha256sum -c --status -; then
+          cp "$cached" "$RUNNER_TEMP/trivy.tgz"
+        else
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/trivy.tgz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${trivy_arch}.tar.gz"
+          echo "${sha256}  $RUNNER_TEMP/trivy.tgz" | sha256sum -c -
+          if mkdir -p "${cached%/*}" && cp "$RUNNER_TEMP/trivy.tgz" "$cached.$$"; then mv -f "$cached.$$" "$cached"; fi
+        fi
         tar -xzf "$RUNNER_TEMP/trivy.tgz" -C "$RUNNER_TEMP/trivy-dl" trivy
         install -m 0755 "$RUNNER_TEMP/trivy-dl/trivy" "$RUNNER_TEMP/trivy-bin/trivy"
         echo "bin=$RUNNER_TEMP/trivy-bin/trivy" >> "$GITHUB_OUTPUT"
@@ -77,7 +85,21 @@ runs:
 
     # The vulnerability DB comes from mirror.gcr.io, then ghcr.io (Trivy's default order). The cache
     # keeps most runs off the registries' rate limits.
+    # On the self-hosted runners the day's databases are a directory on the runner's disk, shared by
+    # every repo (public data); copied in and out so concurrent scans never share Trivy's lock.
+    - name: Restore the Trivy databases from the runner's disk
+      id: local-db
+      if: env.ECLEAN_ACTIONS_CACHE != ''
+      shell: bash
+      env:
+        DAY: ${{ steps.install.outputs.day }}
+      run: |
+        set -euo pipefail
+        dir="$ECLEAN_ACTIONS_CACHE/trivy-db/$DAY"
+        mkdir -p "$RUNNER_TEMP/trivy-cache"
+        if [ -d "$dir" ]; then cp -a "$dir/." "$RUNNER_TEMP/trivy-cache/"; echo "hit=true" >> "$GITHUB_OUTPUT"; else echo "hit=false" >> "$GITHUB_OUTPUT"; fi
     - name: Cache the Trivy databases
+      if: env.ECLEAN_ACTIONS_CACHE == ''
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/trivy-cache
@@ -134,3 +156,18 @@ runs:
         fi
         echo "report-file=$RUNNER_TEMP/trivy-image.json" >> "$GITHUB_OUTPUT"
         TITLE="${TITLE:-${IMAGE:-$TARBALL}}" IGNORE="$ignore" node "$SUMMARIZE" "$RUNNER_TEMP/trivy-image.json"
+    - name: Keep the Trivy databases on the runner's disk
+      if: ${{ always() && steps.local-db.outputs.hit == 'false' }}
+      shell: bash
+      env:
+        DAY: ${{ steps.install.outputs.day }}
+      run: |
+        set -euo pipefail
+        dir="$ECLEAN_ACTIONS_CACHE/trivy-db/$DAY"
+        [ -d "$RUNNER_TEMP/trivy-cache/db" ] || exit 0
+        [ -d "$dir" ] && exit 0
+        mkdir -p "${dir%/*}"
+        cp -a "$RUNNER_TEMP/trivy-cache" "$dir.tmp.$$"
+        mv "$dir.tmp.$$" "$dir" 2> /dev/null || rm -rf "$dir.tmp.$$"
+        # Older days are no use: keep only today's.
+        find "${dir%/*}" -mindepth 1 -maxdepth 1 -type d ! -name "$DAY" ! -name '*.tmp.*' -exec rm -rf {} +

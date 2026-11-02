@@ -1,0 +1,72 @@
+# Marks inactive issues and pull requests stale, then closes them. Call it from a daily schedule;
+# it wraps actions/stale with the org defaults. Pull requests in draft are exempt by default.
+name: Stale
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+      days-before-stale:
+        description: "Days of inactivity before an issue or pull request is marked stale"
+        type: number
+        default: 60
+      days-before-close:
+        description: "Days after being marked stale before it is closed"
+        type: number
+        default: 14
+      stale-label:
+        description: "Label added to stale items"
+        type: string
+        default: stale
+      exempt-labels:
+        description: "Comma-separated labels that are never marked stale (issues and pull requests)"
+        type: string
+        default: pinned,security,repo-health
+      exempt-draft-pr:
+        description: "Never mark draft pull requests stale"
+        type: boolean
+        default: true
+      operations-per-run:
+        description: "Maximum API operations per run"
+        type: number
+        default: 100
+      stale-message:
+        description: "Comment posted when an issue or pull request is marked stale"
+        type: string
+        default: >-
+          This has had no activity for a while, so it is marked stale. Comment or push a change
+          to keep it open; otherwise it is closed automatically soon.
+      close-message:
+        description: "Comment posted when a stale issue or pull request is closed"
+        type: string
+        default: >-
+          Closing this due to inactivity. Feel free to reopen it if it is still relevant.
+
+permissions: {}
+
+jobs:
+  stale:
+    name: Stale
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 10
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          days-before-stale: ${{ inputs.days-before-stale }}
+          days-before-close: ${{ inputs.days-before-close }}
+          stale-issue-label: ${{ inputs.stale-label }}
+          stale-pr-label: ${{ inputs.stale-label }}
+          exempt-issue-labels: ${{ inputs.exempt-labels }}
+          exempt-pr-labels: ${{ inputs.exempt-labels }}
+          exempt-draft-pr: ${{ inputs.exempt-draft-pr }}
+          operations-per-run: ${{ inputs.operations-per-run }}
+          stale-issue-message: ${{ inputs.stale-message }}
+          stale-pr-message: ${{ inputs.stale-message }}
+          close-issue-message: ${{ inputs.close-message }}
+          close-pr-message: ${{ inputs.close-message }}

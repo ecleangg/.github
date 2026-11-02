@@ -1,0 +1,7 @@
+{
+  "name": "ecleangg Repo health",
+  "description": "Weekly repo health tracking issue and stale issue handling.",
+  "iconName": "octicon heart",
+  "categories": ["Automation"],
+  "filePatterns": []
+}

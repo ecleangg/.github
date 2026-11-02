@@ -1,0 +1,60 @@
+name: Changed files
+description: >-
+  Lists the files a pull request changes so lint, format and test steps can run on them alone, and
+  decides when everything has to run instead (pushes, schedules, manual runs, merge queues, and pull
+  requests that touch a lockfile, a toolchain pin or tool configuration). Puts `ci-scope`,
+  `ci-go-packages` and `ci-rust-packages` on PATH. See docs/ci-standard.md.
+inputs:
+  full-patterns:
+    description: "Extra newline-separated globs; a pull request touching one of them runs everything"
+    required: false
+    default: ""
+  default-full-patterns:
+    description: "Also use the built-in list of lockfiles, toolchain pins and tool configuration"
+    required: false
+    default: "true"
+  filters:
+    description: "Newline-separated `name: glob !glob ...` lines; each becomes a key of `matches`, true when a changed file matches a glob and no later `!glob`"
+    required: false
+    default: ""
+  token:
+    description: "Token to fetch the base commit with, for checkouts made with persist-credentials: false"
+    required: false
+    default: ${{ github.token }}
+  max-files:
+    description: "A pull request changing more files than this runs everything"
+    required: false
+    default: "400"
+outputs:
+  full:
+    description: "true when everything should be checked"
+    value: ${{ steps.diff.outputs.full }}
+  reason:
+    description: "Why `full` is true, or `changed files` when it is false"
+    value: ${{ steps.diff.outputs.reason }}
+  base:
+    description: "Commit the changes are relative to (empty when full)"
+    value: ${{ steps.diff.outputs.base }}
+  files-file:
+    description: "Path of a file listing the changed, non-deleted paths, one per line"
+    value: ${{ steps.diff.outputs.files-file }}
+  count:
+    description: "Number of changed, non-deleted paths"
+    value: ${{ steps.diff.outputs.count }}
+  matches:
+    description: 'JSON object, one boolean per filter name (always true when full), e.g. {"rust":true,"docs":false}'
+    value: ${{ steps.diff.outputs.matches }}
+runs:
+  using: composite
+  steps:
+    - id: diff
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        INPUT_FULL_PATTERNS: ${{ inputs.full-patterns }}
+        INPUT_DEFAULT_FULL_PATTERNS: ${{ inputs.default-full-patterns }}
+        INPUT_FILTERS: ${{ inputs.filters }}
+        INPUT_MAX_FILES: ${{ inputs.max-files }}
+        INPUT_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/changed-files.sh"

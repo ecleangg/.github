@@ -1,0 +1,61 @@
+name: Postgres
+description: >-
+  Starts a throwaway Postgres container for tests on a runner with Docker (the self-hosted Linux pool,
+  ubuntu-24.04), on a free local port, and waits until it accepts connections. A composite action
+  has no post step: stop it with `docker rm -f` on the `container` output in an `if: always()` step,
+  or let the ephemeral runner's cleanup do it.
+inputs:
+  image:
+    description: "Postgres image, pinned by tag or digest"
+    required: false
+    default: postgres:18
+  database:
+    description: "Database to create"
+    required: false
+    default: test
+  user:
+    description: "Superuser name"
+    required: false
+    default: postgres
+  password:
+    description: "Superuser password (throwaway)"
+    required: false
+    default: postgres
+outputs:
+  url:
+    description: "postgres:// connection URL"
+    value: ${{ steps.start.outputs.url }}
+  port:
+    description: "Local port"
+    value: ${{ steps.start.outputs.port }}
+  container:
+    description: "Container name"
+    value: ${{ steps.start.outputs.container }}
+runs:
+  using: composite
+  steps:
+    - id: start
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        PGDATABASE: ${{ inputs.database }}
+        PGUSER: ${{ inputs.user }}
+        PGPASSWORD: ${{ inputs.password }}
+      run: |
+        set -euo pipefail
+        name="pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}-$RANDOM"
+        # tmpfs data and fsync off: a test database never needs durability.
+        docker run -d --name "$name" -p 127.0.0.1::5432 --tmpfs /var/lib/postgresql \
+          -e POSTGRES_DB="$PGDATABASE" -e POSTGRES_USER="$PGUSER" -e POSTGRES_PASSWORD="$PGPASSWORD" \
+          "$IMAGE" -c fsync=off -c synchronous_commit=off -c full_page_writes=off > /dev/null
+        port="$(docker port "$name" 5432/tcp | head -n 1 | sed 's/.*://')"
+        for _ in $(seq 1 60); do
+          if docker exec "$name" pg_isready -q -U "$PGUSER" -d "$PGDATABASE"; then break; fi
+          sleep 1
+        done
+        docker exec "$name" pg_isready -q -U "$PGUSER" -d "$PGDATABASE"
+        {
+          echo "url=postgres://$PGUSER:$PGPASSWORD@127.0.0.1:$port/$PGDATABASE"
+          echo "port=$port"
+          echo "container=$name"
+        } >> "$GITHUB_OUTPUT"

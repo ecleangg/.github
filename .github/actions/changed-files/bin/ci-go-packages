@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# ci-go-packages: Go packages to vet and test, one per line, run from the module root.
+#   full run        ./...
+#   changed files   the packages holding a changed .go file (or testdata below them), plus every
+#                   package of the module that imports one of them, directly or not. Prints nothing
+#                   when no Go package changed.
+#
+#   pkgs="$(ci-go-packages)"; [ -z "$pkgs" ] || go test $pkgs
+set -euo pipefail
+
+if [ "${ECLEAN_FULL:-true}" != false ] || [ ! -f "${ECLEAN_CHANGED_FILES:-}" ]; then
+  echo "./..."
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+here="$(pwd -P)"
+prefix="${here#"$root"}"
+prefix="${prefix#/}"
+
+# Directories (relative to this module) with a changed Go file or test fixture.
+package_dir() {
+  local file="$1"
+  if [ -n "$prefix" ]; then
+    case "$file" in
+      "$prefix"/*) file="${file#"$prefix"/}" ;;
+      *) return 0 ;;
+    esac
+  fi
+  case "$file" in
+    *.go | */testdata/*) ;;
+    *) return 0 ;;
+  esac
+  case "$file" in
+    */testdata/*) file="${file%%/testdata/*}" ;;
+    *) file="$(dirname "$file")" ;;
+  esac
+  if [ "$file" = . ]; then echo "$here"; else echo "$here/$file"; fi
+}
+changed_dirs="$(while IFS= read -r f; do [ -z "$f" ] || package_dir "$f"; done < "$ECLEAN_CHANGED_FILES" | sort -u)"
+[ -n "$changed_dirs" ] || exit 0
+
+# ImportPath, Dir and every dependency (transitive) of each package of the module.
+go list -e -test=false -f '{{.ImportPath}}{{"\t"}}{{.Dir}}{{"\t"}}{{join .Deps " "}}' ./... |
+  CHANGED_DIRS="$changed_dirs" awk -F'\t' '
+    BEGIN { n = split(ENVIRON["CHANGED_DIRS"], d, "\n"); for (i = 1; i <= n; i++) want[d[i]] = 1 }
+    { path[NR] = $1; deps[NR] = $3; if ($2 in want) hit[$1] = 1 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (path[i] in hit) { print path[i]; continue }
+        m = split(deps[i], dep, " ")
+        for (j = 1; j <= m; j++) if (dep[j] in hit) { print path[i]; break }
+      }
+    }'

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# One-time setup of an SSH signing key for commits and attestations.
+# One-time setup of an SSH signing key for commits.
 #
-#   eclean-attest-setup [--key <path>] [--no-passphrase]
+#   setup-commit-signing [--key <path>] [--no-passphrase]
 #
 # Creates an ed25519 key if none is configured, sets gpg.format=ssh, user.signingkey and
-# commit.gpgsign=true globally, and prints the line to submit to
-# ecleangg/.github/.github/attestation/allowed_signers by pull request.
+# commit.gpgsign=true globally, and prints the public key to upload to GitHub as a Signing Key.
 set -euo pipefail
 
 key="$HOME/.ssh/eclean_signing_ed25519" pass=1
@@ -13,13 +12,13 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --key) key="${2:?--key needs a path}"; shift 2 ;;
     --no-passphrase) pass=0; shift ;;
-    -h | --help) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "eclean-attest-setup: unknown argument: $1" >&2; exit 2 ;;
+    -h | --help) sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "setup-commit-signing: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
 email="$(git config --get user.email || true)"
-[ -n "$email" ] || { echo "eclean-attest-setup: set git user.email first (your eclean.gg address)" >&2; exit 1; }
+[ -n "$email" ] || { echo "setup-commit-signing: set git user.email first (your eclean.gg address)" >&2; exit 1; }
 
 existing="$(git config --global --get user.signingkey || true)"
 if [ -n "$existing" ] && [ "$(git config --global --get gpg.format || true)" = ssh ]; then
@@ -39,7 +38,7 @@ git config --global user.signingkey "$pub"
 git config --global commit.gpgsign true
 
 echo
-echo "Add this line to .github/attestation/allowed_signers in ecleangg/.github (pull request),"
-echo "and upload the same public key to GitHub as a Signing Key (commits must be signed):"
+echo "Upload this public key to GitHub as a Signing Key (Settings > SSH and GPG keys > New SSH key,"
+echo "type: Signing Key); the repos require signed commits:"
 echo
-printf '%s namespaces="eclean-verify" %s\n' "$email" "$(cut -d' ' -f1,2 "$pub")"
+cat "$pub"

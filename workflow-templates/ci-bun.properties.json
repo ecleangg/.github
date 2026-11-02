@@ -1,0 +1,7 @@
+{
+  "name": "ecleangg Bun CI",
+  "description": "Format, lint, typecheck, tests and build through the shared bun-ci workflow, plus changesets releases.",
+  "iconName": "octicon checklist",
+  "categories": ["JavaScript","TypeScript"],
+  "filePatterns": ["^bun\\.lockb?$"]
+}
