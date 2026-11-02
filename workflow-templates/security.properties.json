@@ -1,0 +1,7 @@
+{
+  "name": "ecleangg Security",
+  "description": "Secret scan and workflow lint (plus optional OSV, Opengrep and Trivy configuration scans).",
+  "iconName": "octicon shield-check",
+  "categories": ["Security"],
+  "filePatterns": []
+}

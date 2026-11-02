@@ -1,0 +1,23 @@
+name: Repo health
+
+on:
+  schedule:
+    - cron: "41 5 * * 1" # Weekly, Monday 05:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      security-events: read
+    uses: ecleangg/.github/.github/workflows/repo-health.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+  stale:
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: ecleangg/.github/.github/workflows/stale.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main

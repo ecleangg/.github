@@ -1,0 +1,7 @@
+{
+  "name": "ecleangg Rust CI",
+  "description": "Format, clippy, tests and audit through the shared rust-ci workflow, plus release-plz releases.",
+  "iconName": "octicon checklist",
+  "categories": ["Rust"],
+  "filePatterns": ["^Cargo\\.toml$"]
+}

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [$default-branch]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Drafts skip it; marking the pull request ready for review runs it.
+  ci:
+    permissions:
+      contents: read
+    uses: ecleangg/.github/.github/workflows/go-ci.yml@fcebd84b63afc3885f2b4d31a40afef822f5dec6 # main
+    with:
+      tools: golang.org/x/vuln/cmd/govulncheck@v1.1.4
+      audit: govulncheck ./...
+
+  # Keeps a release pull request open from Conventional Commits
+  # (needs release-please-config.json and .release-please-manifest.json).
+  release:
+    if: github.event_name == 'push'
+    needs: ci
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: ecleangg/.github-private/.github/workflows/release-please.yml@187eca2d0dbce0f09c376a5dbafb82120a955a99 # main

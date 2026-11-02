@@ -1,0 +1,7 @@
+{
+  "name": "ecleangg verify CI",
+  "description": "Runs the repo's single verify command through the shared verify workflow.",
+  "iconName": "octicon checklist",
+  "categories": ["Ansible","Shell","Makefile"],
+  "filePatterns": ["^Makefile$","^ansible\\.cfg$"]
+}
