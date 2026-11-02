@@ -69,10 +69,19 @@ ea_tools_json() {
   printf '%s' "$tools"
 }
 
-# ea_write_note repo cmd key push: build the signed payload for HEAD and store/push the note.
-# Assumes the working tree is already clean and that `cmd` already ran successfully against it.
+# ea_e2e_cmd: echoes the repo's optional end-to-end command (`bun run verify:e2e`), or returns 1.
+ea_e2e_cmd() {
+  if [ -f package.json ] && grep -q '"verify:e2e"[[:space:]]*:' package.json; then echo "bun run verify:e2e"
+  else return 1
+  fi
+}
+
+# ea_write_note repo cmd key push [suites]: build the signed payload for HEAD and store/push the note.
+# Assumes the working tree is already clean and that `cmd` (and the end-to-end command, when suites
+# is "verify,e2e") already ran successfully against it. suites defaults to "verify"; notes without
+# the field count as "verify".
 ea_write_note() {
-  local repo="$1" cmd="$2" key="$3" push="$4"
+  local repo="$1" cmd="$2" key="$3" push="$4" suites="${5:-verify}"
   local attester now stamp commit tree tmp
   attester="$(git config --get user.email || true)"
   [ -n "$attester" ] || { echo "eclean-attest: git user.email is not set" >&2; return 1; }
@@ -82,8 +91,8 @@ ea_write_note() {
   tree="$(git rev-parse 'HEAD^{tree}')"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
-  printf '{"v":1,"repo":"%s","commit":"%s","tree":"%s","cmd":"%s","files":%s,"tools":{%s},"epoch":%s,"time":"%s","attester":"%s"}\n' \
-    "$(ea_clean "$repo")" "$commit" "$tree" "$(ea_clean "$cmd")" "$(ea_files_json HEAD)" "$(ea_tools_json)" "$now" "$stamp" "$(ea_clean "$attester")" >"$tmp/payload"
+  printf '{"v":1,"repo":"%s","commit":"%s","tree":"%s","cmd":"%s","suites":"%s","files":%s,"tools":{%s},"epoch":%s,"time":"%s","attester":"%s"}\n' \
+    "$(ea_clean "$repo")" "$commit" "$tree" "$(ea_clean "$cmd")" "$(ea_clean "$suites")" "$(ea_files_json HEAD)" "$(ea_tools_json)" "$now" "$stamp" "$(ea_clean "$attester")" >"$tmp/payload"
   ssh-keygen -Y sign -n "$EA_NAMESPACE" -f "$key" "$tmp/payload" >/dev/null || { echo "eclean-attest: signing failed" >&2; return 1; }
   cat "$tmp/payload" "$tmp/payload.sig" >"$tmp/note"
 

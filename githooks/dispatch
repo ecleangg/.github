@@ -6,7 +6,8 @@
 # It then runs the repository's full verify command (same detection as scripts/eclean-attest) and,
 # on success, attests the commit automatically; a failing verify blocks the commit. Set
 # ECLEAN_SKIP_VERIFY=1 to skip the full verify step (loudly logged), or use `git commit --no-verify`
-# to skip every hook. pre-push does nothing of its own: heavy checks run in CI or through
+# to skip every hook. ECLEAN_ATTEST_E2E=1 also runs the repo's `bun run verify:e2e` (when it has one)
+# and records suites "verify,e2e" in the attestation, so CI may skip its end-to-end job. pre-push does nothing of its own: heavy checks run in CI or through
 # eclean-attest. Every hook then chains to the repository's .git/hooks/<name>, so installing the
 # global hooks path does not silently disable hooks a clone already had.
 #
@@ -59,7 +60,20 @@ if [ "$name" = pre-commit ]; then
       elif cmd="$(ea_detect_verify_cmd)"; then
         before="$(git status --porcelain)"
         echo "eclean-githooks: running full verify before commit: $cmd" >&2
+        suites=verify failed="$cmd"
+        passed=0
         if out="$(bash -c "$cmd" 2>&1)"; then
+          passed=1
+          if [ "${ECLEAN_ATTEST_E2E:-0}" = 1 ]; then
+            if e2e_cmd="$(ea_e2e_cmd)"; then
+              echo "eclean-githooks: running end-to-end suite before commit: $e2e_cmd" >&2
+              if out="$(bash -c "$e2e_cmd" 2>&1)"; then suites=verify,e2e; else passed=0 failed="$e2e_cmd"; fi
+            else
+              echo "eclean-githooks: ECLEAN_ATTEST_E2E=1 but the repo has no verify:e2e script; attesting verify only" >&2
+            fi
+          fi
+        fi
+        if [ "$passed" = 1 ]; then
           if [ "$(git status --porcelain)" != "$before" ]; then
             echo "eclean-githooks: verify modified the working tree; stage the result and commit again" >&2
             exit 1
@@ -71,6 +85,7 @@ if [ "$name" = pre-commit ]; then
               printf 'repo=%s\n' "$repo"
               printf 'cmd=%s\n' "$cmd"
               printf 'key=%s\n' "$key"
+              printf 'suites=%s\n' "$suites"
               printf 'push=1\n'
             } >"$gitdir_local/ECLEAN_ATTEST_PENDING"
           elif [ ! -f "$gitdir_local/eclean_attest_no_key_warned" ]; then
@@ -78,7 +93,7 @@ if [ "$name" = pre-commit ]; then
             : >"$gitdir_local/eclean_attest_no_key_warned"
           fi
         else
-          echo "eclean-githooks: verify failed ($cmd); commit blocked" >&2
+          echo "eclean-githooks: verify failed ($failed); commit blocked" >&2
           printf '%s\n' "$out" | tail -n 40 >&2
           exit 1
         fi
@@ -92,7 +107,7 @@ if [ "$name" = post-commit ]; then
   gitdir_local="$(git rev-parse --git-dir 2>/dev/null || true)"
   if [ -n "$top" ] && [ -n "$gitdir_local" ] && [ -f "$gitdir_local/ECLEAN_ATTEST_PENDING" ]; then
     cd "$top" || exit 0
-    tree="" repo="" cmd="" key="" push=1
+    tree="" repo="" cmd="" key="" push=1 suites=verify
     # Parsed, not sourced: values such as `cmd=make verify` contain spaces and would be run as a command.
     while IFS= read -r line || [ -n "$line" ]; do
       case "$line" in
@@ -101,6 +116,7 @@ if [ "$name" = post-commit ]; then
         cmd=*) cmd="${line#cmd=}" ;;
         key=*) key="${line#key=}" ;;
         push=*) push="${line#push=}" ;;
+        suites=*) suites="${line#suites=}" ;;
       esac
     done <"$gitdir_local/ECLEAN_ATTEST_PENDING"
     rm -f "$gitdir_local/ECLEAN_ATTEST_PENDING"
@@ -110,7 +126,7 @@ if [ "$name" = post-commit ]; then
       if [ -f "$lib" ]; then
         # shellcheck source=/dev/null
         . "$lib"
-        ea_write_note "$repo" "$cmd" "$key" "$push" >&2 || echo "eclean-githooks: attestation failed after commit" >&2
+        ea_write_note "$repo" "$cmd" "$key" "$push" "$suites" >&2 || echo "eclean-githooks: attestation failed after commit" >&2
       fi
     fi
   fi

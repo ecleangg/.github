@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Run the repo's `verify` command and publish a signed attestation for HEAD.
 #
-#   eclean-attest [--cmd "<command>"] [--key <ssh key>] [--repo owner/name] [--no-push]
+#   eclean-attest [--cmd "<command>"] [--key <ssh key>] [--repo owner/name] [--no-push] [--e2e]
 #
 # The attestation is bound to the TREE of HEAD, so any content change invalidates it while an
 # amend or rebase that keeps the tree stays valid. It is signed with `ssh-keygen -Y sign -n
 # eclean-verify` and stored as a git note under refs/notes/eclean-verify, pushed to origin.
+# --e2e (or ECLEAN_ATTEST_E2E=1) also runs the repo's `bun run verify:e2e` and records suites
+# "verify,e2e" in the signed note, so CI may skip its end-to-end job too.
 # Requires: bash, git, ssh-keygen and standard POSIX tools.
 set -euo pipefail
 
@@ -13,14 +15,15 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=eclean-attest-lib.sh
 . "$here/eclean-attest-lib.sh"
 
-cmd="" key="" repo="" push=1
+cmd="" key="" repo="" push=1 e2e="${ECLEAN_ATTEST_E2E:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --cmd) cmd="${2:?--cmd needs a value}"; shift 2 ;;
     --key) key="${2:?--key needs a value}"; shift 2 ;;
     --repo) repo="${2:?--repo needs a value}"; shift 2 ;;
     --no-push) push=0; shift ;;
-    -h | --help) sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --e2e) e2e=1; shift ;;
+    -h | --help) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "eclean-attest: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -52,7 +55,15 @@ fi
 echo "eclean-attest: running: $cmd" >&2
 bash -c "$cmd" || die "verify failed; nothing attested"
 
+suites=verify
+if [ "$e2e" = 1 ]; then
+  e2e_cmd="$(ea_e2e_cmd)" || die "--e2e needs a verify:e2e script in package.json"
+  echo "eclean-attest: running: $e2e_cmd" >&2
+  bash -c "$e2e_cmd" || die "end-to-end run failed; nothing attested"
+  suites=verify,e2e
+fi
+
 # The command may have rewritten files (formatters); an attestation for a changed tree is meaningless.
 [ -z "$(git status --porcelain)" ] || die "verify modified the working tree; commit the result and run again"
 
-ea_write_note "$repo" "$cmd" "$key" "$push" || exit 1
+ea_write_note "$repo" "$cmd" "$key" "$push" "$suites" || exit 1
