@@ -1,0 +1,42 @@
+name: Local cache save
+description: >-
+  Saves a cache to the self-hosted runner's disk (ECLEAN_ACTIONS_CACHE), or to actions/cache
+  elsewhere. Existing keys are never overwritten. Pair with local-cache/restore.
+inputs:
+  path:
+    description: "Newline-separated paths or globs, relative to working-directory"
+    required: true
+  key:
+    description: "Exact key"
+    required: true
+  working-directory:
+    description: "Directory the paths are relative to"
+    required: false
+    default: ${{ github.workspace }}
+  backend:
+    description: "auto (the runner disk when ECLEAN_ACTIONS_CACHE is set, else actions/cache), local or remote"
+    required: false
+    default: auto
+runs:
+  using: composite
+  steps:
+    - id: backend
+      shell: bash
+      env:
+        INPUT_BACKEND: ${{ inputs.backend }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: bash "$GITHUB_ACTION_PATH/../lib/decide.sh"
+    - if: steps.backend.outputs.local == 'true'
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_KEY: ${{ inputs.key }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "$GITHUB_ACTION_PATH/../lib/local-cache.sh" save
+    - if: steps.backend.outputs.local != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.backend.outputs.paths }}
+        key: ${{ inputs.key }}
