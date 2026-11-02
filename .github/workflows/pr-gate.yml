@@ -22,9 +22,9 @@ on:
         type: string
         default: "1"
       runs-on:
-        description: "Runner label for the gate job; override it where ubuntu-slim minutes are unavailable"
+        description: "Runner label for the gate job; defaults to Blacksmith x64"
         type: string
-        default: ubuntu-slim
+        default: blacksmith-2vcpu-ubuntu-2604
       command-hint:
         description: "Command shown in the summary when no attestation applies"
         type: string
