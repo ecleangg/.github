@@ -70,7 +70,7 @@ on:
         description: "Delete old versions of the container and npm packages linked to this repository"
         type: boolean
         default: true
-      packages:
+      package-names:
         description: "Newline-separated `container:name` / `npm:name` packages to prune; default the image named after the repository and the @<org> npm package in package.json"
         type: string
         default: ""
@@ -326,7 +326,7 @@ jobs:
         env:
           KEEP: ${{ inputs.keep-versions }}
           DRY_RUN: ${{ inputs.dry-run }}
-          PACKAGES: ${{ inputs.packages }}
+          PACKAGES: ${{ inputs.package-names }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -359,7 +359,7 @@ jobs:
             };
 
             // The workflow token can't list the org's packages, so each one is addressed by name:
-            // `packages` lines (`container:name`, `npm:name`), or by default the image named after the
+            // `package-names` lines (`container:name`, `npm:name`), or by default the image named after the
             // repository and the published @<org> npm package in package.json. Missing ones are skipped.
             const candidates = [];
             const explicit = (process.env.PACKAGES || '').trim();
