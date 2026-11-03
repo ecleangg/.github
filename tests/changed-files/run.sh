@@ -45,6 +45,7 @@ run push
 check "push: full" true "$(out full)"
 run pull_request 'src/*'
 check "full pattern (deleted file counts)" true "$(out full)"
+check "full pattern: keeps the base" "$(git merge-base "$base" HEAD)" "$(out base)"
 g checkout -q feat
 run pull_request
 check "head checkout: merge base" "$base" "$(out base)"

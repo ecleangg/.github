@@ -104,8 +104,10 @@ all_true_json() {
   echo "$json}"
 }
 
+# Keeps the base when one was found, so base-aware tools (fallow audit, vitest --changed) still
+# have it on a full run.
 full() {
-  emit true "$1" "" 0 "$(all_true_json)"
+  emit true "$1" "${base:-}" 0 "$(all_true_json)"
   exit 0
 }
 
