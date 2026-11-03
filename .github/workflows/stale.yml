@@ -1,3 +1,5 @@
+# Superseded by the `stale` job of repo-health.yml (90 days, drafts included, exempt `pinned,security,keep`),
+# which new callers should use instead; kept unchanged for existing callers.
 # Marks inactive issues and pull requests stale, then closes them. Call it from a daily schedule;
 # it wraps actions/stale with the org defaults. Pull requests in draft are exempt by default.
 name: Stale
