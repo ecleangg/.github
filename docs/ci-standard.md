@@ -481,6 +481,7 @@ Job permissions: `contents: read` everywhere, `issues: write` and `pull-requests
 | `max-deletions` | `1000` | Cap on log and artifact deletions per run (API rate limits); the next run continues |
 | `cache-max-age-days` | `3` | Days without access after which a cache is deleted |
 | `keep-versions` | `2` | Tagged container versions (all npm versions) kept per package, newest first |
+| `package-names` | empty | `container:name` / `npm:name` lines; default the image named after the repo and the `@ecleangg` npm package in `package.json` (the workflow token cannot list org packages) |
 
 Packages: `GET /orgs/{org}/packages` for `container` and `npm`, filtered to this repository. npm keeps
 the newest `keep-versions` versions. A container keeps the newest `keep-versions` versions that carry a
