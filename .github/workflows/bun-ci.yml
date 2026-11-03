@@ -66,7 +66,7 @@ on:
         type: string
         default: ""
       playwright-browsers:
-        description: "Browsers to install before the tests, e.g. chromium firefox webkit (system libraries are on the runner)"
+        description: "Browsers to install before the tests, e.g. chromium firefox (system libraries are on the runner)"
         type: string
         default: ""
       test:
