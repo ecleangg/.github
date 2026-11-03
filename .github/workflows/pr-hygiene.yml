@@ -1,9 +1,9 @@
-# Pull request hygiene: Conventional Commits title, automatic labels and a changeset reminder, for
-# pull requests in a private repo on the Free plan (no rulesets). Call it on pull_request with the
+# Pull request hygiene: Conventional Commits title and automatic labels, for pull requests in a
+# private repo on the Free plan (no rulesets). Call it on pull_request with the
 # types opened, edited, synchronize, reopened, ready_for_review, labeled and unlabeled, and make
 # the jobs required in branch protection.
 #
-# - The metadata checks (title, labels, changeset) are cheap API calls and run on drafts too.
+# - The metadata checks (title, labels) are cheap API calls and run on drafts too.
 # - No checkout and no third-party actions: the checks are actions/github-script.
 # - The labeler job skips itself when the repo has no .github/labeler.yml.
 name: PR hygiene
@@ -27,18 +27,6 @@ on:
         description: "Run actions/labeler when the repo has .github/labeler.yml"
         type: boolean
         default: true
-      changesets:
-        description: "Require a changeset (.changeset/*.md) or an exemption"
-        type: boolean
-        default: false
-      no-release-label:
-        description: "Label that exempts a pull request from needing a changeset"
-        type: string
-        default: no release
-      exempt-authors:
-        description: "Comma-separated bot logins exempt from the changeset check"
-        type: string
-        default: renovate[bot],dependabot[bot],github-actions[bot]
 
 permissions: {}
 
@@ -119,55 +107,3 @@ jobs:
         with:
           configuration-path: .github/labeler.yml
           sync-labels: true
-
-  changeset:
-    name: Changeset
-    if: ${{ inputs.changesets }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          NO_RELEASE_LABEL: ${{ inputs.no-release-label }}
-          EXEMPT_AUTHORS: ${{ inputs.exempt-authors }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        with:
-          script: |
-            const pr = context.payload.pull_request;
-            const exemptAuthors = process.env.EXEMPT_AUTHORS.split(',').map((a) => a.trim().toLowerCase()).filter(Boolean);
-
-            const exemption = (() => {
-              if (process.env.HEAD_REF.startsWith('changeset-release/')) return 'the changesets release pull request';
-              if (exemptAuthors.includes(process.env.PR_AUTHOR.toLowerCase())) return `exempt author ${process.env.PR_AUTHOR}`;
-              if (pr.labels.some((l) => l.name === process.env.NO_RELEASE_LABEL)) return `label "${process.env.NO_RELEASE_LABEL}"`;
-              return null;
-            })();
-            if (exemption) {
-              core.info(`Passing: ${exemption}.`);
-              await core.summary.addRaw(`Changeset not required: ${exemption}.`, true).write();
-              return;
-            }
-
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              ...context.repo,
-              pull_number: pr.number,
-              per_page: 100,
-            });
-            const found = files.find(
-              (f) => /^\.changeset\/[^/]+\.md$/.test(f.filename)
-                && f.filename !== '.changeset/README.md'
-                && f.status !== 'removed',
-            );
-            if (found) {
-              core.info(`Passing: ${found.filename}.`);
-              await core.summary.addRaw(`Changeset found: \`${found.filename}\`.`, true).write();
-              return;
-            }
-
-            const message = `This pull request has no changeset. Run \`bun changeset\` and commit the generated file, or add the "${process.env.NO_RELEASE_LABEL}" label if it needs no release.`;
-            await core.summary.addRaw(message, true).write();
-            core.setFailed(message);

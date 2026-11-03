@@ -19,6 +19,6 @@ jobs:
   verify:
     permissions:
       contents: read
-    uses: ecleangg/.github/.github/workflows/verify.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
+    uses: ecleangg/.github/.github/workflows/verify.yml@edfe72b86093c9926beac7769e07fbcc83454ddf # main
     with:
       command: make verify

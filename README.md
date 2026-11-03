@@ -13,7 +13,7 @@ full input tables are in [docs/ci-standard.md](docs/ci-standard.md).
 | Workflow | Purpose |
 | --- | --- |
 | [`bun-ci.yml`](docs/ci-standard.md#bun-ci) | Format, lint, typecheck, tests, audit, coverage and build for a Bun/TypeScript repo |
-| [`rust-ci.yml`](docs/ci-standard.md#rust-ci) | Format, clippy, tests and audit on the affected workspace members |
+| [`rust-ci.yml`](docs/ci-standard.md#rust-ci) | Format, clippy, tests, coverage and audit on the affected workspace members |
 | [`go-ci.yml`](docs/ci-standard.md#go-ci) | gofmt, vet, tests and vulnerability audit on the affected packages |
 | [`verify.yml`](docs/ci-standard.md#verify) | One `verify` command, for infra, config and docs repos |
 | [`docker-build.yml`](docs/ci-standard.md#docker-build) | Build an image without pushing it and scan it |
@@ -21,8 +21,8 @@ full input tables are in [docs/ci-standard.md](docs/ci-standard.md).
 | [`security.yml`](docs/ci-standard.md#security) | Secret scan, workflow lint, OSV, Opengrep, Trivy configuration scan |
 | [`trivy-image-scheduled.yml`](docs/ci-standard.md#trivy-image-scheduled) | Scheduled scan of a published image |
 | [`pr-hygiene.yml`](docs/ci-standard.md#pr-hygiene) | Conventional Commits title (release-please reads these), labels |
-| [`repo-health.yml`](docs/ci-standard.md#repo-health) | Weekly health check kept as one issue |
-| [`stale.yml`](docs/ci-standard.md#stale) | Stale issue and pull request handling |
+| [`repo-health.yml`](docs/ci-standard.md#repo-health) | Weekly housekeeping: standard files, stale items, old run logs, artifacts, caches and package versions |
+| [`stale.yml`](docs/ci-standard.md#stale) | Stale issue and pull request handling (superseded by `repo-health.yml`) |
 
 ## Composite actions
 

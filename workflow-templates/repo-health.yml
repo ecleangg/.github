@@ -9,15 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  # Standard-files report, stale issues and PRs, old run logs/artifacts, old caches and package versions.
+  # Each part can be turned off with an input; see docs/ci-standard.md.
   health:
     permissions:
       contents: read
       issues: write
-      actions: read
-      security-events: read
-    uses: ecleangg/.github/.github/workflows/repo-health.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
-  stale:
-    permissions:
-      issues: write
       pull-requests: write
-    uses: ecleangg/.github/.github/workflows/stale.yml@da9c6f9906586709d1c7cdeebfc84237db6f2c92 # main
+      actions: write
+      packages: write
+    uses: ecleangg/.github/.github/workflows/repo-health.yml@edfe72b86093c9926beac7769e07fbcc83454ddf # main

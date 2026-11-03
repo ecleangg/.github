@@ -182,8 +182,10 @@ jobs:
 #### rust-ci
 
 `rust-ci.yml`: Rust workspace. Format, clippy and tests on the affected members, extra checks, audit,
-and the `CI` job. Toolchain from `rust-toolchain.toml` through rustup, rustc behind sccache. Permissions:
-`contents: read`.
+and the `CI` job. Toolchain from `rust-toolchain.toml` through rustup, rustc behind sccache. Every step
+runs in bash, so a Windows runner works too (`runs-on: '["self-hosted","Windows","X64"]'`, Git Bash).
+Permissions: `contents: read`; with `coverage` also `actions: read` and `pull-requests: write`
+(the job requests them, so the caller must grant them).
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -191,12 +193,20 @@ and the `CI` job. Toolchain from `rust-toolchain.toml` through rustup, rustc beh
 | `env` | empty | `NAME=value` lines (no secrets) |
 | `filters` | `code: * !*.md ...` | `actions/changed-files` filters |
 | `full-patterns` | empty | Extra globs that make a pull request check everything |
+| `setup` | empty | Multi-line script after the toolchain, before format and lint (`bun install --frozen-lockfile`, code generation) |
 | `tools` | empty | Comma-separated cargo tools for `taiki-e/install-action`, e.g. `cargo-nextest,cargo-deny` |
 | `postgres` | empty | Postgres image for the tests (`DATABASE_URL` is set for the test and extra steps) |
+| `compose-file` | empty | Compose file (relative to `working-directory`): `docker compose up -d --wait` before the tests, `down -v` at the end |
+| `compose-profiles` | empty | Comma- or space-separated profiles to enable |
+| `compose-project` | `<repo>-<run id>-<job>` | Compose project name (`COMPOSE_PROJECT_NAME`, lowercased) so parallel runs do not collide |
+| `concurrency-group` | empty | Serializes `Verify` jobs sharing the group (`queue: max`); needed when the Compose file has fixed container names or ports |
 | `format` | `cargo fmt --all --check` | Format check |
 | `lint` | `cargo clippy $PACKAGES --all-targets --locked -- -D warnings` | `$PACKAGES` is `-p a -p b` or `--workspace` |
 | `test` | `cargo test $PACKAGES --locked` | Test command |
 | `extra` | empty | More checks (multi-line script) |
+| `coverage` | empty | Command writing an lcov file after the tests, e.g. `cargo llvm-cov $PACKAGES --locked --lcov --output-path lcov.info` |
+| `coverage-file` | `lcov.info` | The lcov file, for `actions/coverage-summary` |
+| `coverage-name` | repository name | Name of the coverage comment and baseline artifact |
 | `audit` | empty | e.g. `cargo deny check advisories`; every non-draft event |
 | `cache-target` | `true` | Keep `target/` between runs |
 | `timeout-minutes` | `45` | Job limit |
@@ -206,10 +216,17 @@ jobs:
   ci:
     permissions:
       contents: read
+      actions: read
+      pull-requests: write
     uses: ecleangg/.github/.github/workflows/rust-ci.yml@<sha> # <ref>
     with:
-      tools: cargo-nextest,cargo-deny
+      setup: bun install --frozen-lockfile
+      tools: cargo-nextest,cargo-deny,cargo-llvm-cov
+      compose-file: compose.test.yml
+      compose-profiles: test
+      concurrency-group: api-rs-compose
       test: cargo nextest run $PACKAGES --locked
+      coverage: cargo llvm-cov nextest $PACKAGES --locked --lcov --output-path lcov.info
       audit: cargo deny check advisories
 ```
 
@@ -415,7 +432,7 @@ jobs:
 #### pr-hygiene
 
 `pr-hygiene.yml`: Conventional Commits title check, automatic labels (when the repo has
-`.github/labeler.yml`) and an optional changeset check (for repos still on Changesets; the org releases with release-please), for private repos without rulesets. No
+`.github/labeler.yml`), for private repos without rulesets. No
 checkout and no third-party actions besides the labeler. Runs on drafts. Call it on `pull_request` with
 types `opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled`. Permissions:
 `contents: read`, `pull-requests: write`.
@@ -425,9 +442,6 @@ types `opened, edited, synchronize, reopened, ready_for_review, labeled, unlabel
 | `types` | `feat,fix,docs,refactor,perf,test,build,ci,chore,revert` | Allowed Conventional Commits types |
 | `require-lowercase` | `true` | Subject starts with a lowercase letter |
 | `labeler` | `true` | Run `actions/labeler` when `.github/labeler.yml` exists |
-| `changesets` | `false` | Require a `.changeset/*.md` or an exemption |
-| `no-release-label` | `no release` | Label that exempts a pull request from the changeset |
-| `exempt-authors` | `renovate[bot],dependabot[bot],github-actions[bot]` | Bot logins exempt from the changeset check |
 
 ```yaml
 jobs:
@@ -440,16 +454,41 @@ jobs:
 
 #### repo-health
 
-`repo-health.yml`: weekly health check kept as one tracking issue: missing standard files, stale
-`# vX.Y.Z` pin comments, failed default-branch runs, open Dependabot alerts. Created or updated while
-there are problems, closed when there are none. Permissions: `contents: read`, `issues: write`,
-`actions: read`, `security-events: read`.
+`repo-health.yml`: weekly housekeeping in five independent jobs, each turned off by a boolean input
+(all default on). It opens no issue. Call it from a weekly `schedule` and `workflow_dispatch`.
+
+| Job | Input | Does |
+| --- | --- | --- |
+| `files` | `files` | Job-summary table of standard files in the repo, inherited from the org `.github` repo, or missing (never fails) |
+| `stale` | `stale` | `actions/stale`: warning comment, then closes; drafts included |
+| `runs` | `runs` | Deletes logs (run metadata stays) and artifacts of runs older than `max-age-days` |
+| `caches` | `caches` | Deletes Actions caches not accessed for `cache-max-age-days` |
+| `packages` | `packages` | Deletes old versions of the container and npm packages linked to the repository |
+
+Job permissions: `contents: read` everywhere, `issues: write` and `pull-requests: write` (`stale`),
+`actions: write` (`runs`, `caches`), `packages: write` (`packages`). The caller grants the union:
+`contents: read`, `issues: write`, `pull-requests: write`, `actions: write`, `packages: write`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `label` | `repo-health` | Label of the tracking issue (created when missing) |
-| `title` | `Repo health` | Issue title |
-| `check-dependabot` | `true` | Count open Dependabot alerts |
+| `dry-run` | `false` | `runs`, `caches`, `packages` and `stale` only list what they would delete or mark |
+| `files`, `stale`, `runs`, `caches`, `packages` | `true` | Turn a job off |
+| `days-before-stale` | `90` | Inactivity before the warning |
+| `days-before-close` | `14` | Days after the warning before it is closed |
+| `exempt-labels` | `pinned,security,keep` | Never marked stale |
+| `max-age-days` | `7` | Age after which run logs and artifacts are deleted |
+| `lookback-days` | `14` | Runs visited: created up to this many days before the cutoff (`0`: all). Keeps a weekly run from re-requesting logs already deleted |
+| `max-deletions` | `1000` | Cap on log and artifact deletions per run (API rate limits); the next run continues |
+| `cache-max-age-days` | `3` | Days without access after which a cache is deleted |
+| `keep-versions` | `2` | Tagged container versions (all npm versions) kept per package, newest first |
+| `package-names` | empty | `container:name` / `npm:name` lines; default the image named after the repo and the `@ecleangg` npm package in `package.json` (the workflow token cannot list org packages) |
+
+Packages: `GET /orgs/{org}/packages` for `container` and `npm`, filtered to this repository. npm keeps
+the newest `keep-versions` versions. A container keeps the newest `keep-versions` versions that carry a
+tag other than a cosign `sha256-<digest>.sig/.att/.sbom` tag, anything tagged `latest`, and every version
+created from one hour before the oldest kept version onwards (multi-arch children, signatures,
+attestations). The rest is deleted. Runs are limited by the API to 1000 results per query; the job
+continues below the oldest run it saw, up to five queries.
 
 ```yaml
 on:
@@ -461,15 +500,17 @@ jobs:
     permissions:
       contents: read
       issues: write
-      actions: read
-      security-events: read
+      pull-requests: write
+      actions: write
+      packages: write
     uses: ecleangg/.github/.github/workflows/repo-health.yml@<sha> # <ref>
 ```
 
 #### stale
 
-`stale.yml`: wraps `actions/stale` with the org defaults. Call it from a daily or weekly schedule.
-Permissions: `issues: write`, `pull-requests: write`.
+`stale.yml`: superseded by the `stale` job of `repo-health.yml` (90 days, drafts included, exempt
+`pinned,security,keep`); new callers use that. Kept unchanged for existing callers: wraps `actions/stale`
+with the former defaults. Permissions: `issues: write`, `pull-requests: write`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -481,15 +522,6 @@ Permissions: `issues: write`, `pull-requests: write`.
 | `operations-per-run` | `100` | API operation limit |
 | `stale-message` | text | Comment when marked stale |
 | `close-message` | text | Comment when closed |
-
-```yaml
-jobs:
-  stale:
-    permissions:
-      issues: write
-      pull-requests: write
-    uses: ecleangg/.github/.github/workflows/stale.yml@<sha> # <ref>
-```
 
 ### Composite actions
 
@@ -694,7 +726,7 @@ the whole backlog, run the workflow by hand or wait for the `schedule` run.
 The org Renovate preset (`github>ecleangg/.github`) enables `helpers:pinGitHubActionDigests`, so
 Renovate rewrites every `uses:` to a full SHA with a ref comment and opens PRs when a new release or
 commit appears, for the `ecleangg/.github` and `ecleangg/.github-private` reusable workflows and
-actions too (callers pin `# main`). `repo-health.yml` reports comments that fell behind. Org policy
+actions too (callers pin `# main`). Org policy
 rejects a workflow whose action or reusable workflow is not pinned to a full SHA, and only allows
 GitHub-owned actions, verified creators and the org allowlist.
 

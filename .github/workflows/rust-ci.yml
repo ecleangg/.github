@@ -10,6 +10,13 @@
 #   shared RUSTUP_HOME), rustc runs behind the runner's sccache, and `target` is kept on the runner's
 #   disk between runs (actions/local-cache): saved from the default branch once per toolchain and
 #   Cargo.lock (compiled dependencies are what it saves; sccache covers the rest).
+# - `setup` runs after the toolchain and before format and lint (install dependencies, generate code).
+# - `compose-file` starts a Docker Compose stack before the tests and removes it (`down -v`) at the
+#   end, under a project name unique to the run. Compose files with fixed container names or ports
+#   still collide between runs: set `concurrency-group` to serialize those runs.
+# - `coverage` produces an lcov file after the tests and reports it with coverage-summary (the caller
+#   grants `actions: read` and `pull-requests: write`).
+# - Every step runs in bash, so a Windows runner (Git Bash) works with runs-on '["self-hosted","Windows","X64"]'.
 name: Rust CI
 
 on:
@@ -36,12 +43,32 @@ on:
         description: "Extra globs that make a pull request check everything"
         type: string
         default: ""
+      setup:
+        description: "Multi-line script run after the toolchain and before format and lint, e.g. bun install --frozen-lockfile or code generation"
+        type: string
+        default: ""
       tools:
         description: "Comma-separated cargo tools for taiki-e/install-action (prebuilt binaries, kept in CARGO_HOME), e.g. cargo-nextest,cargo-deny"
         type: string
         default: ""
       postgres:
         description: "Postgres image to start for the tests (DATABASE_URL is set for the test and extra steps); empty: none"
+        type: string
+        default: ""
+      compose-file:
+        description: "Docker Compose file to start before the tests (relative to working-directory); empty: none"
+        type: string
+        default: ""
+      compose-profiles:
+        description: "Comma- or space-separated Compose profiles to enable with compose-file"
+        type: string
+        default: ""
+      compose-project:
+        description: "Compose project name; empty: <repo>-<run id>-<job>, lowercased"
+        type: string
+        default: ""
+      concurrency-group:
+        description: "Serialize verify jobs sharing this group (queue: max), e.g. when the Compose file uses fixed container names or ports; empty: no limit"
         type: string
         default: ""
       format:
@@ -58,6 +85,18 @@ on:
         default: cargo test $PACKAGES --locked
       extra:
         description: "More checks after the tests, as a multi-line script"
+        type: string
+        default: ""
+      coverage:
+        description: "Command that writes an lcov file after the tests, e.g. cargo llvm-cov $PACKAGES --locked --lcov --output-path lcov.info; empty: none"
+        type: string
+        default: ""
+      coverage-file:
+        description: "lcov file the coverage command writes, relative to working-directory"
+        type: string
+        default: lcov.info
+      coverage-name:
+        description: "Name of the coverage comment and baseline artifact; defaults to the repository name"
         type: string
         default: ""
       audit:
@@ -80,8 +119,14 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    # Without a group the key is unique to this run, so nothing queues.
+    concurrency:
+      group: ${{ inputs.concurrency-group != '' && inputs.concurrency-group || format('rust-ci-{0}-{1}', github.run_id, github.run_attempt) }}
+      queue: max
     permissions:
       contents: read
+      actions: read
+      pull-requests: write
     defaults:
       run:
         shell: bash
@@ -143,6 +188,11 @@ jobs:
         uses: $/.github/actions/postgres
         with:
           image: ${{ inputs.postgres }}
+      - name: Setup
+        if: steps.run.outputs.code == 'true' && inputs.setup != ''
+        env:
+          CMD: ${{ inputs.setup }}
+        run: bash -euo pipefail -c "$CMD"
       - parallel:
           - name: Format
             if: steps.run.outputs.code == 'true' && inputs.format != ''
@@ -154,6 +204,21 @@ jobs:
             env:
               CMD: ${{ inputs.lint }}
             run: bash -euo pipefail -c "$CMD"
+      - name: Compose up
+        id: compose
+        if: steps.run.outputs.code == 'true' && inputs.compose-file != ''
+        env:
+          COMPOSE_FILE_INPUT: ${{ inputs.compose-file }}
+          COMPOSE_PROFILES_INPUT: ${{ inputs.compose-profiles }}
+          COMPOSE_PROJECT_INPUT: ${{ inputs.compose-project }}
+        run: |
+          project="${COMPOSE_PROJECT_INPUT:-${GITHUB_REPOSITORY#*/}-${GITHUB_RUN_ID}-${GITHUB_JOB}}"
+          project="$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
+          echo "COMPOSE_PROJECT_NAME=$project" >> "$GITHUB_ENV"
+          echo "started=true" >> "$GITHUB_OUTPUT"
+          args=(-f "$COMPOSE_FILE_INPUT")
+          for profile in ${COMPOSE_PROFILES_INPUT//,/ }; do args+=(--profile "$profile"); done
+          COMPOSE_PROJECT_NAME="$project" docker compose "${args[@]}" up -d --wait
       - name: Test
         if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.test != '' }}
         env:
@@ -166,6 +231,20 @@ jobs:
           DATABASE_URL: ${{ steps.postgres.outputs.url }}
           CMD: ${{ inputs.extra }}
         run: bash -euo pipefail -c "$CMD"
+      - name: Coverage
+        id: coverage
+        if: ${{ !cancelled() && steps.run.outputs.code == 'true' && inputs.coverage != '' }}
+        env:
+          DATABASE_URL: ${{ steps.postgres.outputs.url }}
+          CMD: ${{ inputs.coverage }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Coverage summary
+        if: ${{ !cancelled() && steps.coverage.outcome == 'success' && hashFiles(format('{0}/{1}', inputs.working-directory, inputs.coverage-file)) != '' }}
+        uses: $/.github/actions/coverage-summary
+        with:
+          name: ${{ inputs.coverage-name != '' && inputs.coverage-name || github.event.repository.name }}
+          format: lcov
+          file: ${{ inputs.working-directory }}/${{ inputs.coverage-file }}
       - name: Dependency audit
         if: ${{ !cancelled() && inputs.audit != '' }}
         env:
@@ -177,6 +256,11 @@ jobs:
           if command -v sccache > /dev/null && [ -n "${RUSTC_WRAPPER:-}" ]; then
             { echo '```'; sccache --show-stats; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
           fi
+      - name: Compose down
+        if: ${{ always() && steps.compose.outputs.started == 'true' }}
+        env:
+          COMPOSE_FILE_INPUT: ${{ inputs.compose-file }}
+        run: docker compose -f "$COMPOSE_FILE_INPUT" down -v
       - name: Stop Postgres
         if: ${{ always() && steps.postgres.outputs.container != '' }}
         env:
