@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # The runner's own pull request context must not leak into the simulated events below.
-unset GITHUB_HEAD_REF GITHUB_BASE_REF ECLEAN_FULL ECLEAN_BASE ECLEAN_CHANGED_FILES CI_LOCAL_CACHE
+unset GITHUB_HEAD_REF GITHUB_BASE_REF CI_CHANGES_FULL CI_CHANGES_BASE CI_CHANGES_FILES CI_LOCAL_CACHE
 
 root="$(pwd)"
 cf="$root/.github/actions/changed-files"
@@ -66,7 +66,7 @@ check "ci-scope: ts files" "LINT src/b.ts" "$(bash "$cf/bin/ci-scope" --ext ts -
 check "ci-scope: nothing matches" "" "$(bash "$cf/bin/ci-scope" --ext py -- echo LINT | grep -v '^ci-scope' || true)"
 check "ci-scope: --no-files" "RUN" "$(bash "$cf/bin/ci-scope" --no-files --ext ts -- echo RUN | tail -n 1)"
 check "ci-scope: --dir" "LINT b.ts" "$(bash "$cf/bin/ci-scope" --dir src -- echo LINT | tail -n 1)"
-check "ci-scope: full" "FULL" "$(ECLEAN_FULL=true bash "$cf/bin/ci-scope" --full 'echo FULL' -- echo LINT | tail -n 1)"
+check "ci-scope: full" "FULL" "$(CI_CHANGES_FULL=true bash "$cf/bin/ci-scope" --full 'echo FULL' -- echo LINT | tail -n 1)"
 
 if command -v go > /dev/null; then
   mkdir -p "$t/gomod" && cd "$t/gomod"
@@ -79,8 +79,8 @@ if command -v go > /dev/null; then
   g add -A && g commit -qm base
   echo a/a.go > "$t/gofiles"
   check "ci-go-packages: importers" "example.com/m/a example.com/m/b" \
-    "$(ECLEAN_FULL=false ECLEAN_CHANGED_FILES="$t/gofiles" bash "$cf/bin/ci-go-packages" | sort | tr '\n' ' ' | sed 's/ $//')"
-  check "ci-go-packages: full" "./..." "$(ECLEAN_FULL=true bash "$cf/bin/ci-go-packages")"
+    "$(CI_CHANGES_FULL=false CI_CHANGES_FILES="$t/gofiles" bash "$cf/bin/ci-go-packages" | sort | tr '\n' ' ' | sed 's/ $//')"
+  check "ci-go-packages: full" "./..." "$(CI_CHANGES_FULL=true bash "$cf/bin/ci-go-packages")"
   cd "$t/repo"
 fi
 
@@ -96,8 +96,8 @@ if command -v cargo > /dev/null && command -v jq > /dev/null; then
   g add -A && g commit -qm base
   echo a/src/lib.rs > "$t/rsfiles"
   check "ci-rust-packages: dependents" "-p a -p b" \
-    "$(ECLEAN_FULL=false ECLEAN_CHANGED_FILES="$t/rsfiles" bash "$cf/bin/ci-rust-packages")"
-  check "ci-rust-packages: full" "--workspace" "$(ECLEAN_FULL=true bash "$cf/bin/ci-rust-packages")"
+    "$(CI_CHANGES_FULL=false CI_CHANGES_FILES="$t/rsfiles" bash "$cf/bin/ci-rust-packages")"
+  check "ci-rust-packages: full" "--workspace" "$(CI_CHANGES_FULL=true bash "$cf/bin/ci-rust-packages")"
   cd "$t/repo"
 fi
 

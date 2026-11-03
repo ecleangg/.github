@@ -27,7 +27,7 @@ jobs:
       format: ci-scope --full "bun run format:check" -- bunx oxfmt --check
       lint: bunx oxlint
       typecheck: bun run typecheck
-      test: bunx vitest run --changed "$ECLEAN_BASE"
+      test: bunx vitest run --changed "$CI_CHANGES_BASE"
       build: bun run build
 
   # Keeps a release pull request open from Conventional Commits; merging it tags the version and

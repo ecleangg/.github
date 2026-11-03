@@ -69,7 +69,7 @@ native column themselves.
 
 - A pull request checks only what it changes. `actions/changed-files` lists the changed files and
   `filters` decides whether the code steps run at all. Commands use `ci-scope` (format, lint),
-  `vitest run --changed "$ECLEAN_BASE"` (tests), `ci-rust-packages` (`-p` arguments) and
+  `vitest run --changed "$CI_CHANGES_BASE"` (tests), `ci-rust-packages` (`-p` arguments) and
   `ci-go-packages` (import paths).
 - Pushes, schedules, manual runs, merge queues, pull requests touching a lockfile, a toolchain pin or
   tool configuration (built-in list, extended with `full-patterns`), and pull requests changing more
@@ -176,7 +176,7 @@ jobs:
     with:
       lint: bunx oxlint
       typecheck: bun run typecheck
-      test: bunx vitest run --changed "$ECLEAN_BASE"
+      test: bunx vitest run --changed "$CI_CHANGES_BASE"
 ```
 
 #### rust-ci
@@ -269,7 +269,7 @@ jobs:
 #### verify
 
 `verify.yml`: repos whose checks are one command (Ansible, Compose, config, docs). Runs after
-`actions/changed-files`, so the command can use `ci-scope`, `ECLEAN_FULL` and `ECLEAN_CHANGED_FILES`.
+`actions/changed-files`, so the command can use `ci-scope`, `CI_CHANGES_FULL` and `CI_CHANGES_FILES`.
 Permissions: `contents: read`.
 
 | Input | Default | Meaning |
@@ -531,7 +531,7 @@ with the former defaults. Permissions: `issues: write`, `pull-requests: write`.
 
 Lists the files a pull request changes and decides when everything must run. Needs a checkout with
 history (the base commit is fetched with `token`). Puts `ci-scope`, `ci-go-packages` and
-`ci-rust-packages` on `PATH` and sets `ECLEAN_FULL`, `ECLEAN_BASE` and `ECLEAN_CHANGED_FILES`.
+`ci-rust-packages` on `PATH` and sets `CI_CHANGES_FULL`, `CI_CHANGES_BASE` and `CI_CHANGES_FILES`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -554,7 +554,7 @@ Helpers on `PATH` after the action ran:
 
 | Command | Does |
 | --- | --- |
-| `ci-scope [--ext 'ts\|tsx'] [--glob g] [--dir d] [--full cmd] [--no-files] -- cmd args` | Full run: `--full` (or `cmd args`). Pull request: `cmd args <changed files matching --ext/--glob>`; skips when none match. `--no-files` runs `cmd args` once for tools that find related work from `ECLEAN_BASE` |
+| `ci-scope [--ext 'ts\|tsx'] [--glob g] [--dir d] [--full cmd] [--no-files] -- cmd args` | Full run: `--full` (or `cmd args`). Pull request: `cmd args <changed files matching --ext/--glob>`; skips when none match. `--no-files` runs `cmd args` once for tools that find related work from `CI_CHANGES_BASE` |
 | `ci-rust-packages` | `--workspace`, or `-p name` for each changed workspace member and every member depending on one; empty when none changed |
 | `ci-go-packages` | `./...`, or the changed packages plus every package importing them; empty when none changed |
 

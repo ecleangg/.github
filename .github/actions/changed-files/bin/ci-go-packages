@@ -8,7 +8,7 @@
 #   pkgs="$(ci-go-packages)"; [ -z "$pkgs" ] || go test $pkgs
 set -euo pipefail
 
-if [ "${ECLEAN_FULL:-true}" != false ] || [ ! -f "${ECLEAN_CHANGED_FILES:-}" ]; then
+if [ "${CI_CHANGES_FULL:-true}" != false ] || [ ! -f "${CI_CHANGES_FILES:-}" ]; then
   echo "./..."
   exit 0
 fi
@@ -37,7 +37,7 @@ package_dir() {
   esac
   if [ "$file" = . ]; then echo "$here"; else echo "$here/$file"; fi
 }
-changed_dirs="$(while IFS= read -r f; do [ -z "$f" ] || package_dir "$f"; done < "$ECLEAN_CHANGED_FILES" | sort -u)"
+changed_dirs="$(while IFS= read -r f; do [ -z "$f" ] || package_dir "$f"; done < "$CI_CHANGES_FILES" | sort -u)"
 [ -n "$changed_dirs" ] || exit 0
 
 # ImportPath, Dir and every dependency (transitive) of each package of the module.

@@ -2,8 +2,8 @@
 # Compose, static files), in one Verify job (the check to require). See docs/ci-standard.md.
 #
 # - Draft pull requests skip it; marking the pull request ready for review runs it.
-# - The command runs after actions/changed-files, so it can use `ci-scope` and ECLEAN_FULL /
-#   ECLEAN_CHANGED_FILES to check only what a pull request changed.
+# - The command runs after actions/changed-files, so it can use `ci-scope` and CI_CHANGES_FULL /
+#   CI_CHANGES_FILES to check only what a pull request changed.
 # - Tools come from the runner (the self-hosted runners have Python, uv, Node.js, Bun, Go, Rust,
 #   Docker, ShellCheck and the C toolchain installed); `uv tool` and pip caches are on their disk.
 name: Verify
