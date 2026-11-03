@@ -78,9 +78,9 @@ emit() { # emit <full> <reason> <base> <count> <matches-json>
     echo "matches=$5"
   } >> "$GITHUB_OUTPUT"
   {
-    echo "ECLEAN_FULL=$1"
-    echo "ECLEAN_BASE=$3"
-    echo "ECLEAN_CHANGED_FILES=$out"
+    echo "CI_CHANGES_FULL=$1"
+    echo "CI_CHANGES_BASE=$3"
+    echo "CI_CHANGES_FILES=$out"
   } >> "$GITHUB_ENV"
   echo "$GITHUB_ACTION_PATH/bin" >> "$GITHUB_PATH"
   if [ "$1" = true ]; then

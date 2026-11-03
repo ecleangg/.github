@@ -3,13 +3,13 @@
 #
 #   ci-scope [--ext 'ts|tsx|svelte'] [--glob 'src/*'] [--dir web] [--full 'bun run lint'] [--no-files] -- cmd [args...]
 #
-# Needs actions/changed-files earlier in the job (it sets ECLEAN_FULL and ECLEAN_CHANGED_FILES).
+# Needs actions/changed-files earlier in the job (it sets CI_CHANGES_FULL and CI_CHANGES_FILES).
 #   full run        runs --full through bash, or `cmd args` when --full is not given
 #   changed files   runs `cmd args <files>` with the changed files that match --ext/--glob, below
 #                   --dir (paths made relative to it, run from it); prints a skip and exits 0 when
 #                   none match. Long lists are split over several runs (xargs).
 #   --no-files      runs `cmd args` unchanged, once, when at least one file matches. For tools that
-#                   find related work themselves from ECLEAN_BASE (`vitest run --changed "$ECLEAN_BASE"`).
+#                   find related work themselves from CI_CHANGES_BASE (`vitest run --changed "$CI_CHANGES_BASE"`).
 set -euo pipefail
 
 ext="" dir="" full_cmd="" no_files=false
@@ -27,7 +27,7 @@ while [ $# -gt 0 ]; do
 done
 [ $# -gt 0 ] || { echo "ci-scope: no command after --" >&2; exit 2; }
 
-if [ "${ECLEAN_FULL:-true}" != false ] || [ ! -f "${ECLEAN_CHANGED_FILES:-}" ]; then
+if [ "${CI_CHANGES_FULL:-true}" != false ] || [ ! -f "${CI_CHANGES_FILES:-}" ]; then
   if [ -n "$full_cmd" ]; then
     echo "ci-scope: full run: $full_cmd"
     exec bash -c "$full_cmd"
@@ -52,7 +52,7 @@ while IFS= read -r file; do
     [ "$hit" = true ] || continue
   fi
   files+=("$file")
-done < "$ECLEAN_CHANGED_FILES"
+done < "$CI_CHANGES_FILES"
 
 [ -z "$dir" ] || cd "$dir"
 if [ ${#files[@]} -eq 0 ]; then

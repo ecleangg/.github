@@ -8,14 +8,14 @@
 #   pkgs="$(ci-rust-packages)"; [ -z "$pkgs" ] || cargo clippy $pkgs --all-targets --locked
 set -euo pipefail
 
-if [ "${ECLEAN_FULL:-true}" != false ] || [ ! -f "${ECLEAN_CHANGED_FILES:-}" ] || ! command -v jq > /dev/null; then
+if [ "${CI_CHANGES_FULL:-true}" != false ] || [ ! -f "${CI_CHANGES_FILES:-}" ] || ! command -v jq > /dev/null; then
   echo "--workspace"
   exit 0
 fi
 
 root="$(git rev-parse --show-toplevel)"
 cargo metadata --format-version 1 --no-deps --locked |
-  jq -r --arg root "$root" --rawfile changed "$ECLEAN_CHANGED_FILES" '
+  jq -r --arg root "$root" --rawfile changed "$CI_CHANGES_FILES" '
     def norm: gsub("\\\\"; "/");
     ($root | norm) as $r
     | [.packages[] | {name, dir: (.manifest_path | norm | sub("/Cargo.toml$"; "") | ltrimstr($r) | ltrimstr("/")),

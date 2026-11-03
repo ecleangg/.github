@@ -6,7 +6,7 @@
 #   the pull request ready for review runs it.
 # - A pull request that only touches files outside the `code` filter (docs) skips the steps.
 # - On pull requests, commands written with `ci-scope` (actions/changed-files) see only the changed
-#   files; `ECLEAN_BASE` lets tools find related tests themselves (`vitest run --changed "$ECLEAN_BASE"`).
+#   files; `CI_CHANGES_BASE` lets tools find related tests themselves (`vitest run --changed "$CI_CHANGES_BASE"`).
 #   Pushes, schedules, manual runs and pull requests touching a lockfile or tool configuration run
 #   everything.
 # - Workspace caches (cache-paths) live on the self-hosted runner's disk (actions/local-cache);
