@@ -70,6 +70,10 @@ on:
         description: "Delete old versions of the container and npm packages linked to this repository"
         type: boolean
         default: true
+      packages:
+        description: "Newline-separated `container:name` / `npm:name` packages to prune; default the image named after the repository and the @<org> npm package in package.json"
+        type: string
+        default: ""
       keep-versions:
         description: "Tagged container versions (all npm versions) to keep per package, newest first"
         type: number
@@ -322,6 +326,7 @@ jobs:
         env:
           KEEP: ${{ inputs.keep-versions }}
           DRY_RUN: ${{ inputs.dry-run }}
+          PACKAGES: ${{ inputs.packages }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -353,12 +358,41 @@ jobs:
                 && !tagsOf(v).includes('latest'));
             };
 
-            const packages = [];
-            for (const type of ['container', 'npm']) {
-              const list = await github.paginate('GET /orgs/{org}/packages', { org: owner, package_type: type, per_page: 100 });
-              for (const pkg of list) if (pkg.repository?.name === repo) packages.push({ type, name: pkg.name });
+            // The workflow token can't list the org's packages, so each one is addressed by name:
+            // `packages` lines (`container:name`, `npm:name`), or by default the image named after the
+            // repository and the published @<org> npm package in package.json. Missing ones are skipped.
+            const candidates = [];
+            const explicit = (process.env.PACKAGES || '').trim();
+            if (explicit) {
+              for (const line of explicit.split('\n').map((l) => l.trim()).filter(Boolean)) {
+                const [type, ...rest] = line.split(':');
+                candidates.push({ type, name: rest.join(':') });
+              }
+            } else {
+              candidates.push({ type: 'container', name: repo });
+              try {
+                const { data } = await github.rest.repos.getContent({ owner, repo, path: 'package.json' });
+                const pkg = JSON.parse(Buffer.from(data.content, 'base64').toString());
+                if (typeof pkg.name === 'string' && pkg.name.startsWith(`@${owner}/`) && !pkg.private) {
+                  candidates.push({ type: 'npm', name: pkg.name.slice(owner.length + 2) });
+                }
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
             }
-            if (packages.length === 0) core.info(`No container or npm packages linked to ${owner}/${repo}.`);
+            const packages = [];
+            for (const c of candidates) {
+              try {
+                await github.request('GET /orgs/{org}/packages/{package_type}/{package_name}', {
+                  org: owner, package_type: c.type, package_name: c.name,
+                });
+                packages.push(c);
+              } catch (e) {
+                if (e.status === 404 || e.status === 403) core.info(`No ${c.type} package ${c.name} for this repository.`);
+                else throw e;
+              }
+            }
+            if (packages.length === 0) core.info(`No container or npm packages for ${owner}/${repo}.`);
 
             let rateLimited = false;
             for (const { type, name } of packages) {
