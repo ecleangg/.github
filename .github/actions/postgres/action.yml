@@ -44,6 +44,8 @@ runs:
       run: |
         set -euo pipefail
         name="pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}-$RANDOM"
+        # A failed start otherwise ends the step without a word about why.
+        trap 'echo "::error::postgres did not start (line $LINENO)"; docker ps -a --filter "name=$name"; docker logs --tail 30 "$name" 2>&1 || true' ERR
         # tmpfs data and fsync off: a test database never needs durability.
         docker run -d --name "$name" -p 127.0.0.1::5432 --tmpfs /var/lib/postgresql \
           -e POSTGRES_DB="$PGDATABASE" -e POSTGRES_USER="$PGUSER" -e POSTGRES_PASSWORD="$PGPASSWORD" \
