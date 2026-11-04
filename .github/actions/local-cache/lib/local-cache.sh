@@ -5,8 +5,10 @@
 # local, so compressing costs more than it saves). <scope> is the ref that saved the entry. A run reads
 # entries of its own ref first, then of the default branch, like GitHub's cache. Entries are immutable:
 # a key that exists is never written again. Writes go to a temporary file renamed into place, so
-# concurrent jobs never see half an entry. The oldest entries (by last use) are evicted when the whole
-# cache grows past CI_LOCAL_CACHE_MAX_GB (default 40).
+# concurrent jobs never see half an entry. A save deletes its scope's entries whose keys start with one of
+# INPUT_SUPERSEDES, so a key family keeps only its newest entry. The oldest entries (by last use) are
+# evicted when the whole cache grows past CI_LOCAL_CACHE_MAX_GB (default 40) or the disk has less than
+# CI_LOCAL_CACHE_MIN_FREE_PCT percent free (default 20).
 set -euo pipefail
 
 mode="${1:?restore or save}"
@@ -71,16 +73,35 @@ restore() {
 }
 
 evict() {
-  local max_kb used_kb file
+  local cache max_kb used_kb size_kb avail_kb need_kb short_kb kb file
+  cache="$(to_unix "$CI_LOCAL_CACHE")"
+  [ -d "$cache" ] || return 0
   max_kb=$(( ${CI_LOCAL_CACHE_MAX_GB:-40} * 1024 * 1024 ))
-  used_kb="$(du -sk "$(to_unix "$CI_LOCAL_CACHE")" | cut -f1)"
-  [ "$used_kb" -gt "$max_kb" ] || return 0
-  find "$(to_unix "$CI_LOCAL_CACHE")" -type f -name '*.tar' -printf '%T@ %k %p\n' | sort -n |
+  used_kb="$(du -sk "$cache" | cut -f1)"
+  read -r size_kb avail_kb < <(df -Pk "$cache" | awk 'NR == 2 { print $2, $4 }')
+  need_kb=$((used_kb - max_kb))
+  short_kb=$(( size_kb * ${CI_LOCAL_CACHE_MIN_FREE_PCT:-20} / 100 - avail_kb ))
+  [ "$short_kb" -le "$need_kb" ] || need_kb=$short_kb
+  [ "$need_kb" -gt 0 ] || return 0
+  find "$cache" -type f -name '*.tar' -printf '%T@ %k %p\n' | sort -n |
     while read -r _ kb file; do
-      [ "$used_kb" -gt "$max_kb" ] || break
-      rm -f "$file" && used_kb=$((used_kb - kb))
+      [ "$need_kb" -gt 0 ] || break
+      rm -f "$file" && need_kb=$((need_kb - kb))
       echo "local-cache: evicted $file"
     done
+}
+
+supersede() { # $1: the entry just saved.
+  local prefix old
+  while IFS= read -r prefix; do
+    prefix="${prefix#"${prefix%%[![:space:]]*}"}"
+    prefix="${prefix%"${prefix##*[![:space:]]}"}"
+    [ -n "$prefix" ] || continue
+    for old in "$(dirname "$1")/$(sanitize "$prefix")"*.tar; do
+      [ -f "$old" ] && [ "$old" != "$1" ] || continue
+      if rm -f "$old"; then echo "local-cache: superseded $(basename "$old" .tar)"; fi
+    done
+  done <<< "${INPUT_SUPERSEDES:-}"
 }
 
 save() {
@@ -100,11 +121,13 @@ save() {
     echo "local-cache: none of the paths exist, not saving"
     return
   fi
+  evict
   mkdir -p "$scope_dir"
   tmp="$file.tmp.$$"
   tar -cf "$tmp" -C "$workspace" -- "${existing[@]}"
   mv -f "$tmp" "$file"
   echo "local-cache: saved $INPUT_KEY ($(du -sh "$file" | cut -f1))"
+  supersede "$file"
   evict
 }
 

@@ -113,3 +113,4 @@ jobs:
           path: ${{ inputs.cache-paths }}
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
           key: verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key) }}-${{ github.sha }}
+          supersedes: verify-${{ runner.os }}-

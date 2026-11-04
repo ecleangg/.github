@@ -230,6 +230,7 @@ jobs:
           path: ${{ inputs.cache-paths }}
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
           key: bun-verify-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-${{ github.sha }}
+          supersedes: bun-verify-${{ runner.os }}-
 
   build:
     name: Build
@@ -274,3 +275,4 @@ jobs:
           path: ${{ inputs.build-cache-paths }}
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
           key: bun-build-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}-${{ github.sha }}
+          supersedes: bun-build-${{ runner.os }}-
