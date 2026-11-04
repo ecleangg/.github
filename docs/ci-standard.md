@@ -85,7 +85,7 @@ native column themselves.
 | What | Where | Details |
 | --- | --- | --- |
 | Tool caches (cargo, rustup, sccache, bun, npm, go, uv, toolcache, Playwright) | Runner disk, shared by the lanes | Nothing to configure |
-| Workspace paths (`cache-paths`, `build-cache-paths`) | `actions/local-cache` | `$CI_LOCAL_CACHE/<owner>/<repo>/<ref>/<key>.tar`; reads the run's own ref first, then the default branch; entries are immutable; the oldest are evicted past `CI_LOCAL_CACHE_MAX_GB` (40). Falls back to `actions/cache` where the variable is unset |
+| Workspace paths (`cache-paths`, `build-cache-paths`) | `actions/local-cache` | `$CI_LOCAL_CACHE/<owner>/<repo>/<ref>/<key>.tar`; reads the run's own ref first, then the default branch; entries are immutable; a save with `supersedes` deletes the older entries of its key family; the oldest are evicted past `CI_LOCAL_CACHE_MAX_GB` (40) or when the disk is under `CI_LOCAL_CACHE_MIN_FREE_PCT` (20) percent free. Falls back to `actions/cache` where the variable is unset |
 | Rust `target/` | `actions/local-cache` | Restored by every run, saved from the default branch once per toolchain and `Cargo.lock`. sccache covers the rest. Off with `cache-target: false` |
 | BuildKit layers (`docker-build.yml`) | `$CI_LOCAL_CACHE/<owner>/<repo>/buildx/<name>` | Read by every run, written from the default branch; GitHub-hosted runners use the Actions cache |
 | Trivy vulnerability DB | `$CI_LOCAL_CACHE/trivy-db/<day>` | One download per day per host |

@@ -272,3 +272,4 @@ jobs:
           path: target
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
           key: rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-${{ hashFiles('**/Cargo.lock') }}
+          supersedes: rust-target-${{ runner.os }}-
