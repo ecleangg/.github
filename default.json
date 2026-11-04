@@ -18,6 +18,14 @@
     "before 6am on monday"
   ],
   "timezone": "Europe/Stockholm",
+  "hostRules": [
+    {
+      "description": "@ecleangg packages live on GitHub Packages, which rejects anonymous reads; the token is a classic read:packages token stored as a Mend org secret",
+      "matchHost": "npm.pkg.github.com",
+      "hostType": "npm",
+      "token": "{{ secrets.GITHUB_PACKAGES_TOKEN }}"
+    }
+  ],
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
   "prConcurrentLimit": 5,
