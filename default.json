@@ -40,6 +40,13 @@
   },
   "packageRules": [
     {
+      "description": "SvelteKit and svelte-check call TypeScript's JS API (ts.sys), which TypeScript 7 no longer ships; tsc 7 comes from @typescript/native instead",
+      "matchPackageNames": [
+        "typescript"
+      ],
+      "allowedVersions": "<7"
+    },
+    {
       "description": "Majors get their own PR per package, except GitHub Actions which move together",
       "matchManagers": [
         "github-actions"
