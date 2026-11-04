@@ -40,7 +40,13 @@
   },
   "packageRules": [
     {
-      "description": "SvelteKit and svelte-check call TypeScript's JS API (ts.sys), which TypeScript 7 no longer ships; tsc 7 comes from @typescript/native instead",
+      "description": "SvelteKit and svelte-check call TypeScript's JS API (ts.sys), which TypeScript 7 no longer ships; the SvelteKit repos get tsc 7 from @typescript/native instead",
+      "matchRepositories": [
+        "ecleangg/control-center",
+        "ecleangg/desktop-app",
+        "ecleangg/ui",
+        "ecleangg/website"
+      ],
       "matchPackageNames": [
         "typescript"
       ],
