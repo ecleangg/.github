@@ -527,7 +527,7 @@ Permissions: `actions: read`, `id-token: write`, `pull-requests: write` (the las
 
 ```yaml
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] relays artifacts to comments; runs no pull request code
     workflows: ["CI"] # the `name:` of each workflow that posts comments
     types: [completed]
 permissions: {}
