@@ -18,4 +18,5 @@ jobs:
       pull-requests: write
       actions: write
       packages: write
+      id-token: write # eclean-ci app token for the stale job
     uses: ecleangg/.github/.github/workflows/repo-health.yml@edfe72b86093c9926beac7769e07fbcc83454ddf # main

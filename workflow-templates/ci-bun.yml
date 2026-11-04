@@ -21,7 +21,6 @@ jobs:
       contents: read
       packages: read
       actions: read
-      pull-requests: write
     uses: ecleangg/.github/.github/workflows/bun-ci.yml@edfe72b86093c9926beac7769e07fbcc83454ddf # main
     with:
       format: ci-scope --full "bun run format:check" -- bunx oxfmt --check

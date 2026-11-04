@@ -136,8 +136,8 @@ Release jobs set `cache-mode: none`: a release never restores a cache another jo
 
 `bun-ci.yml`: Bun/TypeScript. Jobs `verify` (install, format, lint and typecheck in parallel, tests,
 extra, audit, coverage) and `build` (when `build` is set), in parallel.
-Permissions: `contents: read`, `packages: read`, `actions: read`, `pull-requests: write` (coverage
-comment).
+Permissions: `contents: read`, `packages: read`, `actions: read` (coverage baseline). The coverage comment
+is posted by [`pr-comments`](#pr-comments).
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -171,7 +171,6 @@ jobs:
       contents: read
       packages: read
       actions: read
-      pull-requests: write
     uses: ecleangg/.github/.github/workflows/bun-ci.yml@<sha> # <ref>
     with:
       lint: bunx oxlint
@@ -184,8 +183,8 @@ jobs:
 `rust-ci.yml`: Rust workspace. Format, clippy and tests on the affected members, extra checks, audit,
 and the `CI` job. Toolchain from `rust-toolchain.toml` through rustup, rustc behind sccache. Every step
 runs in bash, so a Windows runner works too (`runs-on: '["self-hosted","Windows","X64"]'`, Git Bash).
-Permissions: `contents: read`; with `coverage` also `actions: read` and `pull-requests: write`
-(the job requests them, so the caller must grant them).
+Permissions: `contents: read`; with `coverage` also `actions: read` (the job requests it, so the caller
+must grant it). The coverage comment is posted by [`pr-comments`](#pr-comments).
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -217,7 +216,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      pull-requests: write
     uses: ecleangg/.github/.github/workflows/rust-ci.yml@<sha> # <ref>
     with:
       setup: bun install --frozen-lockfile
@@ -259,7 +257,6 @@ jobs:
     permissions:
       contents: read
       actions: read # Coverage baseline.
-      pull-requests: write # Coverage comment.
     uses: ecleangg/.github/.github/workflows/go-ci.yml@<sha> # <ref>
     with:
       tools: golang.org/x/vuln/cmd/govulncheck@v1.1.4
@@ -465,9 +462,16 @@ jobs:
 | `caches` | `caches` | Deletes Actions caches not accessed for `cache-max-age-days` |
 | `packages` | `packages` | Deletes old versions of the container and npm packages linked to the repository |
 
-Job permissions: `contents: read` everywhere, `issues: write` and `pull-requests: write` (`stale`),
-`actions: write` (`runs`, `caches`), `packages: write` (`packages`). The caller grants the union:
-`contents: read`, `issues: write`, `pull-requests: write`, `actions: write`, `packages: write`.
+Job permissions: `contents: read` everywhere, `issues: write`, `pull-requests: write` and `id-token: write`
+(`stale`), `actions: write` (`runs`, `caches`), `packages: write` (`packages`). The caller grants the union:
+`contents: read`, `issues: write`, `pull-requests: write`, `actions: write`, `packages: write`,
+`id-token: write`.
+
+`stale` acts as eclean-ci[bot]: it logs in to OpenBao with the job's OIDC token (role `ci-<repository
+name without a leading dot>`, bound to `refs/heads/main`, so call it from a schedule or dispatch on the
+default branch) and mints an app token. Without the role it falls back to the workflow token (the
+`issues` and `pull-requests` grants) and says so in the job summary. Logs, artifacts, caches and
+packages are deleted with the workflow token.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -503,14 +507,45 @@ jobs:
       pull-requests: write
       actions: write
       packages: write
+      id-token: write
     uses: ecleangg/.github/.github/workflows/repo-health.yml@<sha> # <ref>
+```
+
+#### pr-comments
+
+`pr-comments.yml`: posts the pull request comments that CI runs prepared, as eclean-ci[bot]. A pull
+request run cannot read the app's key (OpenBao issues it only to runs from the default branch), so it
+uploads each comment as an artifact `pr-comment-<header>` with the file `body.md` (the coverage
+summary action does: `pr-comment-coverage-<name>`). A `workflow_run` workflow in the repo, which always
+runs the default branch's code, calls this one after the CI run completed. It acts only when the run was
+a `pull_request`, takes the pull request number from the event (runs without one, such as fork pull
+requests, are skipped), downloads the `pr-comment-*` artifacts of that run, and creates or updates one
+sticky comment per artifact keyed by the name after `pr-comment-`. Artifacts are untrusted text: only
+regular `body.md` files of at most 60000 bytes are posted, and never interpolated into a command.
+Without the repo's OpenBao role the comment is posted with the workflow token and the job summary says so.
+Permissions: `actions: read`, `id-token: write`, `pull-requests: write` (the last only for that fallback).
+
+```yaml
+on:
+  workflow_run:
+    workflows: ["CI"] # the `name:` of each workflow that posts comments
+    types: [completed]
+permissions: {}
+jobs:
+  comments:
+    permissions:
+      actions: read
+      id-token: write
+      pull-requests: write
+    uses: ecleangg/.github/.github/workflows/pr-comments.yml@<sha> # <ref>
 ```
 
 #### stale
 
 `stale.yml`: superseded by the `stale` job of `repo-health.yml` (90 days, drafts included, exempt
 `pinned,security,keep`); new callers use that. Kept unchanged for existing callers: wraps `actions/stale`
-with the former defaults. Permissions: `issues: write`, `pull-requests: write`.
+with the former defaults. Permissions: `issues: write`, `pull-requests: write`, `id-token: write` (it acts as
+eclean-ci[bot] like the `stale` job of `repo-health.yml`, with the same fallback).
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -642,11 +677,11 @@ Go has no branch coverage; its statements are reported as lines.
 | `file` | required | The coverage file |
 | `baseline-artifact` | `coverage-<name>` | Baseline artifact name |
 | `fail-on-error` | `false` | Fail when the file cannot be parsed |
-| `comment` | `true` | Post the pull request comment (fork pull requests cannot) |
-| `github-token` | `github.token` | Token for the baseline download and the comment |
+| `comment` | `true` | On pull requests, upload the comment body as the artifact `pr-comment-coverage-<name>` for [`pr-comments`](#pr-comments) to post |
+| `github-token` | `github.token` | Token for the baseline download |
 
-Outputs: `line-percent`, `branch-percent`, `report-file`. Permissions: `actions: read`,
-`pull-requests: write`.
+Outputs: `line-percent`, `branch-percent`, `report-file`. Permissions: `actions: read`. The pull request run
+never posts the comment.
 
 ```yaml
 - uses: ecleangg/.github/.github/actions/coverage-summary@<sha> # <ref>

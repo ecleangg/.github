@@ -1,0 +1,116 @@
+# Posts the pull request comments that CI runs prepared, as eclean-ci[bot]. A pull request run
+# cannot read the app's private key (OpenBao only issues it to runs from the default branch), so it
+# uploads each comment as an artifact `pr-comment-<header>` holding `body.md`, e.g. the coverage
+# summary action's `pr-comment-coverage-<name>`. This workflow runs from the caller's default branch
+# after that run completed, creates or updates one sticky comment per artifact (keyed by
+# `<header>`) and never runs pull request code.
+#
+# Call it from a `workflow_run` workflow in each repo; list the CI workflow names exactly:
+#   on:
+#     workflow_run:
+#       workflows: ["CI"]
+#       types: [completed]
+#   permissions: {}
+#   jobs:
+#     comments:
+#       permissions:
+#         actions: read        # list and download the artifacts of the run
+#         id-token: write      # OpenBao login for the app token
+#         pull-requests: write # only the fallback to the workflow token uses it
+#       uses: ecleangg/.github/.github/workflows/pr-comments.yml@<sha> # <ref>
+#
+# The pull request number comes from the event (never from an artifact); runs without one, such as
+# fork pull requests, are skipped. Artifact names are filtered to `pr-comment-[A-Za-z0-9._-]+`,
+# the header is the name without `pr-comment-`, and a body that is not a regular file of at most
+# 60000 bytes is skipped: artifacts are untrusted text, only ever passed as a file to the comment
+# action. Until the repo has an OpenBao role `ci-<name>` the comment is posted with the workflow token.
+name: Pull request comments
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+
+permissions: {}
+
+jobs:
+  find:
+    name: Find comments
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.pull_requests[0].number != '' }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      artifacts: ${{ steps.list.outputs.artifacts }}
+    steps:
+      - id: list
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run = context.payload.workflow_run;
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner, repo, run_id: run.id, per_page: 100,
+            });
+            const pattern = /^pr-comment-[A-Za-z0-9._-]{1,100}$/;
+            const found = artifacts
+              .filter((a) => !a.expired && pattern.test(a.name))
+              .map((a) => ({ name: a.name, header: a.name.slice('pr-comment-'.length) }));
+            core.info(`${found.length} comment artifact(s) in run ${run.id}`);
+            core.setOutput('artifacts', JSON.stringify(found));
+
+  post:
+    name: Comment ${{ matrix.artifact.header }}
+    needs: find
+    if: ${{ needs.find.outputs.artifacts != '[]' && needs.find.outputs.artifacts != '' }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      id-token: write
+      pull-requests: write # only for the fallback to the workflow token; the app token has its own
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJSON(needs.find.outputs.artifacts) }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.artifact.name }}
+          path: ${{ runner.temp }}/pr-comment
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Check the body
+        id: body
+        shell: bash
+        env:
+          DIR: ${{ runner.temp }}/pr-comment
+        run: |
+          set -euo pipefail
+          # No symlinks (a link to a runner file would publish it), a regular body.md, a size that fits a comment.
+          if [ -n "$(find "$DIR" -type l -print -quit)" ]; then echo "::error::The artifact holds a symbolic link; skipped."; exit 1; fi
+          if [ ! -f "$DIR/body.md" ]; then echo "::warning::The artifact has no body.md; skipped."; exit 0; fi
+          size="$(wc -c < "$DIR/body.md")"
+          if [ "$size" -gt 60000 ]; then echo "::warning::body.md is $size bytes; skipped."; exit 0; fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: eclean CI app token
+        id: token
+        if: ${{ steps.body.outputs.ok == 'true' }}
+        uses: $/.github/actions/app-token
+        with:
+          permissions: |
+            pull-requests: write
+
+      - uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        if: ${{ steps.body.outputs.ok == 'true' }}
+        with:
+          header: ${{ matrix.artifact.header }}
+          number: ${{ github.event.workflow_run.pull_requests[0].number }}
+          path: ${{ runner.temp }}/pr-comment/body.md
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
