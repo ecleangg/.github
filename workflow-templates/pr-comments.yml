@@ -3,7 +3,7 @@ name: Pull request comments
 # Posts the comments that the CI run prepared (e.g. the coverage summary) as eclean-ci[bot].
 # Runs from the default branch after the CI run completes. List the CI workflow names exactly.
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] relays artifacts to comments; runs no pull request code
     workflows: ["CI"]
     types: [completed]
 

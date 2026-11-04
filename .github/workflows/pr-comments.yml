@@ -7,7 +7,7 @@
 #
 # Call it from a `workflow_run` workflow in each repo; list the CI workflow names exactly:
 #   on:
-#     workflow_run:
+#     workflow_run: # zizmor: ignore[dangerous-triggers] relays artifacts to comments; runs no pull request code
 #       workflows: ["CI"]
 #       types: [completed]
 #   permissions: {}
