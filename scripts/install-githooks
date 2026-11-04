@@ -26,6 +26,8 @@ if [ -n "$current" ] && [ "$expanded" != "$dest" ] && [ "$force" != 1 ]; then
 fi
 
 mkdir -p "$dest"
+# Left behind by installs from before local attestation was retired.
+rm -f "$dest/eclean-attest-lib.sh"
 cp "$src/dispatch" "$dest/dispatch"
 # One stub per standard client hook, so the global path never hides a repo's .git/hooks/<name>.
 for h in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg \
