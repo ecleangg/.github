@@ -264,6 +264,14 @@ jobs:
           fail-on-error: "true"
           comment: "false"
 
+      - name: The comment is staged for pr-comments.yml, not posted
+        id: comment
+        uses: ./.github/actions/coverage-summary
+        with:
+          name: selftest-comment
+          format: lcov
+          file: tests/fixtures/coverage/sample.lcov
+
       - name: Assert
         env:
           LCOV_LINES: ${{ steps.lcov.outputs.line-percent }}
@@ -274,6 +282,8 @@ jobs:
           VITEST_BRANCHES: ${{ steps.vitest.outputs.branch-percent }}
           SOFT_LINES: ${{ steps.broken-soft.outputs.line-percent }}
           HARD_OUTCOME: ${{ steps.broken-hard.outcome }}
+          EVENT: ${{ github.event_name }}
+          STAGED: ${{ runner.temp }}/pr-comment/coverage-selftest-comment/body.md
         run: |
           fail=0
           check() { if [ "$2" = "$3" ]; then echo "ok: $1 = $2"; else echo "::error::$1: expected '$3', got '$2'"; fail=1; fi; }
@@ -284,6 +294,11 @@ jobs:
           check "vitest branch %" "$VITEST_BRANCHES" "50.00"
           check "broken file without fail-on-error yields no number" "$SOFT_LINES" ""
           check "broken file with fail-on-error fails" "$HARD_OUTCOME" "failure"
+          if [ "$EVENT" = pull_request ]; then
+            if [ -s "$STAGED" ]; then echo "ok: the pull request comment is staged for the artifact"; else echo "::error::no staged comment at $STAGED"; fail=1; fi
+          elif [ -e "$STAGED" ]; then
+            echo "::error::a comment was staged outside a pull request"; fail=1
+          fi
           grep -q '^### Coverage: selftest-lcov' "$LCOV_REPORT" || { echo "::error::report header missing"; fail=1; }
           grep -q 'No baseline' "$LCOV_REPORT" && echo "ok: no baseline is reported, not an error" || echo "note: a baseline exists for selftest-lcov"
           exit "$fail"

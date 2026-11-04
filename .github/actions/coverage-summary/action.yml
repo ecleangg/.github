@@ -1,10 +1,12 @@
 name: Coverage summary
 description: >-
-  Reports coverage in the job summary and, on pull requests, as a sticky comment: totals, the delta
+  Reports coverage in the job summary and, on pull requests, as a comment: totals, the delta
   against the latest run on the default branch, the 10 lowest-covered files and a collapsed full
-  table. Report only. On a push to the default branch it uploads the baseline artifact
-  `coverage-<name>`. The caller needs `actions: read` (baseline download) and, for the comment,
-  `pull-requests: write`. The baseline upload needs no extra permission.
+  table. Report only. The pull request run never posts: it uploads the comment body as the artifact
+  `pr-comment-coverage-<name>`, and the `workflow_run` workflow `pr-comments.yml` posts it as
+  eclean-ci[bot] from the default branch, where the app's key is readable. On a push to the default
+  branch it uploads the baseline artifact `coverage-<name>`. The caller needs `actions: read`
+  (baseline download); no write permission.
 
 inputs:
   name:
@@ -25,11 +27,11 @@ inputs:
     required: false
     default: "false"
   comment:
-    description: "Post the sticky pull request comment (needs pull-requests: write; fork pull requests cannot)."
+    description: "Upload the comment body as the artifact `pr-comment-coverage-<name>` on pull requests, for pr-comments.yml to post."
     required: false
     default: "true"
   github-token:
-    description: "Token to list and download the baseline (actions: read) and to comment (pull-requests: write)."
+    description: "Token to list and download the baseline (actions: read)."
     required: false
     default: ${{ github.token }}
 
@@ -97,14 +99,31 @@ runs:
         COVERAGE_BASELINE_NOTE: ${{ steps.baseline.outputs.note }}
       run: node "${{ github.action_path }}/report.js"
 
-    - name: Comment on the pull request
-      if: ${{ github.event_name == 'pull_request' && inputs.comment == 'true' }}
-      continue-on-error: true
-      uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+    - name: Stage the comment
+      id: stage
+      if: ${{ github.event_name == 'pull_request' && inputs.comment == 'true' && steps.report.outputs.report-file != '' }}
+      shell: bash
+      env:
+        COVERAGE_NAME: ${{ inputs.name }}
+        REPORT: ${{ steps.report.outputs.report-file }}
+        DEST: ${{ runner.temp }}/pr-comment/coverage-${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        [ -f "$REPORT" ] || exit 0
+        mkdir -p "$DEST"
+        cp "$REPORT" "$DEST/body.md"
+        echo "staged=true" >> "$GITHUB_OUTPUT"
+
+    # Posted by pr-comments.yml (workflow_run), keyed by the artifact name: `pr-comment-<header>`.
+    - name: Upload the comment
+      if: ${{ steps.stage.outputs.staged == 'true' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        header: coverage-${{ inputs.name }}
-        path: ${{ steps.report.outputs.report-file }}
-        GITHUB_TOKEN: ${{ inputs.github-token }}
+        name: pr-comment-coverage-${{ inputs.name }}
+        path: ${{ runner.temp }}/pr-comment/coverage-${{ inputs.name }}/body.md
+        retention-days: 1
+        overwrite: true
+        if-no-files-found: ignore
 
     - name: Upload the baseline
       if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}

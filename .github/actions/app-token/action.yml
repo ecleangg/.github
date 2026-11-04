@@ -1,0 +1,83 @@
+name: eclean CI app token
+description: >-
+  A short-lived token of the eclean CI GitHub App for the current repository, so comments, labels
+  and issue or pull request changes come from eclean-ci[bot]. The app's private key is read from
+  OpenBao with the job's OIDC token (the job needs `id-token: write`, and must run from the default
+  branch: the OpenBao role is bound to `refs/heads/main`). Until the repository has an OpenBao role,
+  or the app the requested permission, it falls back to the workflow token and says so in the job
+  summary. This copy is for the public `.github` repository, whose workflows run in private
+  repositories; the private `.github-private` repository has its own, richer one.
+inputs:
+  permissions:
+    description: "Newline-separated `name: level` app permissions (issues, pull-requests, contents, actions, packages), e.g. `pull-requests: write`"
+    required: false
+    default: |
+      pull-requests: write
+  openbao-role:
+    description: "OpenBao JWT role; default ci-<repository name without a leading dot>"
+    required: false
+    default: ""
+  openbao-secret:
+    description: "OpenBao secret holding the app key; default kv/data/ci/<repository name without a leading dot>/github-app private-key"
+    required: false
+    default: ""
+outputs:
+  token:
+    description: "The app token, or the workflow token when the app token could not be minted"
+    value: ${{ steps.app.outputs.token || github.token }}
+  app:
+    description: "true when token is the app's"
+    value: ${{ steps.app.outputs.token != '' }}
+runs:
+  using: composite
+  steps:
+    - id: names
+      shell: bash
+      env:
+        REPO: ${{ github.event.repository.name }}
+        ROLE: ${{ inputs.openbao-role }}
+        SECRET: ${{ inputs.openbao-secret }}
+        PERMISSIONS: ${{ inputs.permissions }}
+      run: |
+        set -euo pipefail
+        short="${REPO#.}"
+        echo "role=${ROLE:-ci-$short}" >> "$GITHUB_OUTPUT"
+        echo "secret=${SECRET:-kv/data/ci/$short/github-app private-key} | APP_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
+        # `pull-requests: write` -> permission-pull-requests=write, for actions/create-github-app-token.
+        while IFS= read -r line; do
+          line="${line// /}"
+          [ -n "$line" ] || continue
+          echo "permission-${line%%:*}=${line#*:}" >> "$GITHUB_OUTPUT"
+        done <<< "$PERMISSIONS"
+    - id: openbao
+      continue-on-error: true
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: https://secret.eclean.gg
+        method: jwt
+        role: ${{ steps.names.outputs.role }}
+        jwtGithubAudience: https://secret.eclean.gg
+        exportEnv: false
+        secrets: ${{ steps.names.outputs.secret }}
+    - id: app
+      if: steps.openbao.outputs.APP_PRIVATE_KEY != ''
+      continue-on-error: true
+      uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      with:
+        client-id: Iv23liwdhLJvAeshE7gu # eclean-ci
+        private-key: ${{ steps.openbao.outputs.APP_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+        repositories: ${{ github.event.repository.name }}
+        permission-contents: ${{ steps.names.outputs.permission-contents }}
+        permission-pull-requests: ${{ steps.names.outputs.permission-pull-requests }}
+        permission-issues: ${{ steps.names.outputs.permission-issues }}
+        permission-packages: ${{ steps.names.outputs.permission-packages }}
+        permission-actions: ${{ steps.names.outputs.permission-actions }}
+    - name: Say which identity acts
+      if: steps.app.outputs.token == ''
+      shell: bash
+      env:
+        ROLE: ${{ steps.names.outputs.role }}
+      run: |
+        echo "::warning title=eclean CI app::No app token (OpenBao role $ROLE or the app's permissions are missing, or this is not a run from the default branch); using the workflow token, so this acts as github-actions[bot]."
+        echo "Acting as github-actions[bot]: no eclean CI app token for OpenBao role \`$ROLE\`." >> "$GITHUB_STEP_SUMMARY"

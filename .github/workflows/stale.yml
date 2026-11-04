@@ -2,6 +2,8 @@
 # which new callers should use instead; kept unchanged for existing callers.
 # Marks inactive issues and pull requests stale, then closes them. Call it from a daily schedule;
 # it wraps actions/stale with the org defaults. Pull requests in draft are exempt by default.
+# Comments, labels and closing come from eclean-ci[bot] (OpenBao role ci-<repository>, via
+# `id-token: write`); without that role the workflow token is used and the job summary says so.
 name: Stale
 
 on:
@@ -55,11 +57,20 @@ jobs:
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     timeout-minutes: 10
     permissions:
-      issues: write
-      pull-requests: write
+      issues: write # the fallback to the workflow token
+      pull-requests: write # the fallback to the workflow token
+      id-token: write # OpenBao login for the app token
     steps:
+      - name: eclean CI app token
+        id: token
+        uses: $/.github/actions/app-token
+        with:
+          permissions: |
+            issues: write
+            pull-requests: write
       - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
         with:
+          repo-token: ${{ steps.token.outputs.token }}
           days-before-stale: ${{ inputs.days-before-stale }}
           days-before-close: ${{ inputs.days-before-close }}
           stale-issue-label: ${{ inputs.stale-label }}

@@ -1,0 +1,7 @@
+{
+  "name": "ecleangg Pull request comments",
+  "description": "Posts the coverage and other pull request comments that CI prepared, as eclean-ci[bot].",
+  "iconName": "octicon comment",
+  "categories": ["Automation"],
+  "filePatterns": []
+}

@@ -15,7 +15,7 @@
 #   end, under a project name unique to the run. Compose files with fixed container names or ports
 #   still collide between runs: set `concurrency-group` to serialize those runs.
 # - `coverage` produces an lcov file after the tests and reports it with coverage-summary (the caller
-#   grants `actions: read` and `pull-requests: write`).
+#   grants `actions: read`; pr-comments.yml posts the pull request comment).
 # - Every step runs in bash, so a Windows runner (Git Bash) works with runs-on '["self-hosted","Windows","X64"]'.
 name: Rust CI
 
@@ -126,7 +126,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      pull-requests: write
     defaults:
       run:
         shell: bash

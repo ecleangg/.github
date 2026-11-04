@@ -7,7 +7,10 @@
 #   - caches:   GitHub Actions caches not accessed for `cache-max-age-days`
 #   - packages: old versions of the container and npm packages linked to this repository
 # The caller grants the union of the job permissions: contents: read, issues: write,
-# pull-requests: write, actions: write, packages: write (see docs/ci-standard.md). No issue is opened.
+# pull-requests: write, actions: write, packages: write, id-token: write (see docs/ci-standard.md).
+# No issue is opened. `stale` writes as eclean-ci[bot] (OpenBao role ci-<repository>, via id-token);
+# without that role it falls back to the workflow token and says so in the job summary. The other
+# jobs delete logs, artifacts, caches and packages with the workflow token.
 # `dry-run` makes runs, caches and packages only list what they would delete.
 name: Repo health
 
@@ -146,11 +149,20 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
+      issues: write # the fallback to the workflow token
+      pull-requests: write # the fallback to the workflow token
+      id-token: write # OpenBao login for the app token
     steps:
+      - name: eclean CI app token
+        id: token
+        uses: $/.github/actions/app-token
+        with:
+          permissions: |
+            issues: write
+            pull-requests: write
       - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
         with:
+          repo-token: ${{ steps.token.outputs.token }}
           days-before-stale: ${{ inputs.days-before-stale }}
           days-before-close: ${{ inputs.days-before-close }}
           exempt-issue-labels: ${{ inputs.exempt-labels }}

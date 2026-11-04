@@ -86,7 +86,6 @@ jobs:
     permissions:
       contents: read
       actions: read # Coverage baseline download.
-      pull-requests: write # Coverage comment.
     defaults:
       run:
         shell: bash
