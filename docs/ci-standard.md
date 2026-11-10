@@ -64,6 +64,7 @@ native column themselves.
   `opengrep` and `trivy-config` wait for ready for review.
 - The `ready_for_review` event starts full CI. Callers list it in `pull_request.types`.
 - A skipped job counts as passed for required checks, so a draft never blocks on them.
+- A new push to a pull request cancels that pull request's older runs; every other event (push to `main`, schedule, release, dispatch) gets a run-unique concurrency group and is never cancelled or deduplicated. Callers use `group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}` with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
 
 ## Changed-files policy
 
