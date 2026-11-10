@@ -1,0 +1,72 @@
+name: Test results
+description: >-
+  Remembers that a job's checks passed on a git tree, so another run on the same tree (the push of a
+  merged pull request, a re-run, a second workflow) can skip them. The key is the job kind, the runner
+  OS, a hash of `variant` (pass the job's inputs) and the tree; entries live in local-cache's shared
+  scope on the self-hosted runner's disk, so every branch sees them. Elsewhere (no CI_LOCAL_CACHE) a
+  lookup always misses and a record does nothing. See docs/ci-standard.md.
+inputs:
+  mode:
+    description: "lookup (before the checks) or record (after they passed)"
+    required: true
+  kind:
+    description: "Job kind, e.g. rust-verify"
+    required: true
+  variant:
+    description: "Everything besides the tree that decides the outcome, e.g. toJSON(inputs)"
+    required: false
+    default: ""
+  path:
+    description: "Directory whose tree keys the result, relative to the repository root"
+    required: false
+    default: "."
+outputs:
+  hit:
+    description: "true when the checks already passed on this tree (lookup)"
+    value: ${{ steps.run.outputs.hit || 'false' }}
+  run-url:
+    description: "Run that recorded the result (lookup hit)"
+    value: ${{ steps.run.outputs.url }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        MODE: ${{ inputs.mode }}
+        KIND: ${{ inputs.kind }}
+        VARIANT: ${{ inputs.variant }}
+        TREE_PATH: ${{ inputs.path }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        INPUT_SCOPE: shared
+        INPUT_PATH: result
+      run: |
+        if [ -z "${CI_LOCAL_CACHE:-}" ] || [ ! -w "${CI_LOCAL_CACHE:-/nonexistent}" ]; then
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        tree="$(git rev-parse "HEAD:${TREE_PATH#./}" 2> /dev/null || git rev-parse 'HEAD^{tree}')"
+        variant="$(printf '%s' "$VARIANT" | sha256sum | cut -c1-16)"
+        export INPUT_KEY="result-$KIND-$RUNNER_OS-$variant-$tree"
+        export INPUT_WORKING_DIRECTORY="$RUNNER_TEMP/test-results-$KIND"
+        lib="$GITHUB_ACTION_PATH/../local-cache/lib/local-cache.sh"
+        mkdir -p "$INPUT_WORKING_DIRECTORY"
+        case "$MODE" in
+          lookup)
+            out="$(mktemp)"
+            GITHUB_OUTPUT="$out" bash "$lib" restore
+            hit="$(sed -n 's/^cache-hit=//p' "$out")"
+            echo "hit=${hit:-false}" >> "$GITHUB_OUTPUT"
+            if [ "$hit" = true ]; then
+              url="$(cat "$INPUT_WORKING_DIRECTORY/result" 2> /dev/null || true)"
+              echo "url=$url" >> "$GITHUB_OUTPUT"
+              echo "Passed on this tree already (${url:-an earlier run}): skipping the checks." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            ;;
+          record)
+            echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$INPUT_WORKING_DIRECTORY/result"
+            bash "$lib" save
+            ;;
+          *) echo "::error::test-results: mode is lookup or record, not $MODE"; exit 1 ;;
+        esac
