@@ -16,7 +16,8 @@ runs:
       working-directory: ${{ github.workspace }}
       env:
         VERSION_FILE: ${{ inputs.version-file }}
-      run: |
+      # The PATH entry is the runner's own Bun directory plus a version that matched ^x.y.z$ above it.
+      run: | # zizmor: ignore[github-env]
         if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ "$RUNNER_OS" != Linux ]; then exit 0; fi
         case "$VERSION_FILE" in
           *.json) want="$(jq -r '(.packageManager // "" | capture("^bun@(?<v>[0-9]+[.][0-9]+[.][0-9]+)").v) // .engines.bun // empty' "$VERSION_FILE" 2> /dev/null || true)" ;;
