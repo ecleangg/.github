@@ -80,7 +80,10 @@ if [ "$name" = pre-commit ]; then
         export CI_CHANGES_FULL=false CI_CHANGES_FILES="$staged" CI_CHANGES_BASE=HEAD
       fi
       export PATH="$self/bin:$PATH"
-      if ! out="$(bash -c "$cmd" 2>&1)"; then
+      # Git sets these for the hook; with GIT_DIR set, `git rev-parse --show-toplevel` (ci-rust-packages,
+      # ci-go-packages) returns the current directory instead of the work tree. The staged list is
+      # already written, so the tools find the repository from the work tree like a shell would.
+      if ! out="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_PREFIX bash -c "$cmd" 2>&1)"; then
         echo "eclean-githooks: verify failed ($cmd); commit blocked" >&2
         printf '%s\n' "$out" | tail -n 40 >&2
         exit 1
