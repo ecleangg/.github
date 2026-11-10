@@ -1,8 +1,9 @@
 name: Changed files
 description: >-
-  Lists the files a pull request changes so lint, format and test steps can run on them alone, and
-  decides when everything has to run instead (pushes, schedules, manual runs, merge queues, and pull
-  requests that touch a lockfile, a toolchain pin or tool configuration). Puts `ci-scope`,
+  Lists the files a pull request (or a push, against the commit before it) changes so lint, format
+  and test steps can run on them alone, and decides when everything has to run instead (schedules,
+  manual runs, merge queues, forced pushes, new branches, and changes that touch a lockfile, a
+  toolchain pin or tool configuration). Puts `ci-scope`,
   `ci-go-packages` and `ci-rust-packages` on PATH. See docs/ci-standard.md.
 inputs:
   full-patterns:
@@ -25,6 +26,13 @@ inputs:
     description: "A pull request changing more files than this runs everything"
     required: false
     default: "400"
+  push-diff:
+    description: >-
+      On a push (not forced, not a new branch), check the files changed since the commit the branch
+      was at before (github.event.before) instead of everything. Turn off for jobs whose output has to
+      cover everything, such as a coverage baseline
+    required: false
+    default: "true"
 outputs:
   full:
     description: "true when everything should be checked"
@@ -52,6 +60,9 @@ runs:
       env:
         EVENT_NAME: ${{ github.event_name }}
         PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        PUSH_FORCED: ${{ github.event.forced }}
+        INPUT_PUSH_DIFF: ${{ inputs.push-diff }}
         INPUT_FULL_PATTERNS: ${{ inputs.full-patterns }}
         INPUT_DEFAULT_FULL_PATTERNS: ${{ inputs.default-full-patterns }}
         INPUT_FILTERS: ${{ inputs.filters }}
