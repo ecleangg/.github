@@ -302,6 +302,7 @@ jobs:
           name: ${{ inputs.coverage-name != '' && inputs.coverage-name || github.event.repository.name }}
           format: lcov
           file: ${{ inputs.working-directory }}/${{ inputs.coverage-file }}
+          compare: ${{ steps.changes.outputs.full == 'true' && 'all' || 'report-files' }}
       - name: Dependency audit
         if: ${{ !cancelled() && inputs.audit != '' }}
         env:

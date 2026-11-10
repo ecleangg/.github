@@ -100,6 +100,15 @@ function totals(parsed) {
   return { lines, branches };
 }
 
+// The baseline limited to the files of a partial report (a pull request that ran only the affected
+// packages), so its totals compare like with like.
+function restrictBaseline(baseline, files) {
+  if (!baseline) return baseline;
+  const kept = {};
+  for (const path of Object.keys(files)) if (baseline.files?.[path]) kept[path] = baseline.files[path];
+  return { ...baseline, files: kept, totals: totals({ files: kept }) };
+}
+
 const pct = (c) => (c && c.total > 0 ? (c.covered / c.total) * 100 : null);
 const fmt = (p) => (p === null || p === undefined ? "n/a" : `${p.toFixed(2)}%`);
 const delta = (now, base) => {
@@ -109,7 +118,7 @@ const delta = (now, base) => {
 };
 
 // current/baseline: { totals, files }. baseline may be null.
-function renderReport({ name, format, current, baseline, baselineNote, limit = 10 }) {
+function renderReport({ name, format, current, baseline, baselineNote, scopeNote = "", limit = 10 }) {
   const branchLabel = format === "go" ? "n/a (Go reports statements)" : "Branches";
   const lineLabel = format === "go" ? "Statements" : "Lines";
   const cl = pct(current.totals.lines);
@@ -118,6 +127,7 @@ function renderReport({ name, format, current, baseline, baselineNote, limit = 1
   const bb = baseline ? pct(baseline.totals.branches) : null;
   let md = `### Coverage: ${name}\n\n`;
   md += baseline ? `Compared with the latest run on the default branch${baseline.commit ? ` (\`${String(baseline.commit).slice(0, 10)}\`)` : ""}.\n\n` : `${baselineNote || "No baseline from the default branch yet; no delta."}\n\n`;
+  if (scopeNote) md += `${scopeNote}\n\n`;
   md += "| Metric | Now | Baseline | Delta |\n| --- | ---: | ---: | ---: |\n";
   md += `| ${lineLabel} | ${fmt(cl)} (${current.totals.lines.covered}/${current.totals.lines.total}) | ${baseline ? fmt(bl) : "n/a"} | ${delta(cl, bl)} |\n`;
   if (format !== "go") md += `| ${branchLabel} | ${fmt(cb)} (${current.totals.branches.covered}/${current.totals.branches.total}) | ${baseline ? fmt(bb) : "n/a"} | ${delta(cb, bb)} |\n`;
@@ -138,4 +148,4 @@ function renderReport({ name, format, current, baseline, baselineNote, limit = 1
   return md;
 }
 
-module.exports = { parseLcov, parseGoProfile, parseVitestJson, parse, totals, pct, fmt, delta, renderReport };
+module.exports = { parseLcov, parseGoProfile, parseVitestJson, parse, totals, restrictBaseline, pct, fmt, delta, renderReport };
