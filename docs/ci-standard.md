@@ -223,6 +223,7 @@ must grant it). The coverage comment is posted by [`pr-comments`](#pr-comments).
 | `coverage-name` | repository name | Name of the coverage comment and baseline artifact |
 | `audit` | empty | e.g. `cargo deny check advisories`; every non-draft event |
 | `cache-target` | `true` | Keep `target/` between runs |
+| `bun-version-file` | empty | Pins the Bun the `setup` uses (`packageManager`/`engines.bun` in a package.json, or `.bun-version`), via `actions/bun-pin` |
 | `cache-key` | empty | Extra part of the `target` and result keys, for jobs that differ only in their commands |
 | `reuse-results` | `true` | Skip the checks when this job variant already passed on the same tree |
 | `timeout-minutes` | `45` | Job limit |
