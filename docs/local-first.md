@@ -39,6 +39,16 @@ Every `git commit` (once `install-githooks` is set up) runs, in order:
 
 Each hook then chains to the repo's own `.git/hooks/<name>`, if present.
 
+### A change-aware verify
+
+A repo's verify follows one contract, in the hook and in CI (`verify.yml` sets the same variables):
+
+- `CI_CHANGES_FULL` unset or not `false`: everything, as on main.
+- `CI_CHANGES_FULL=false`: file-level tools (formatters, linters) get the changed files through
+  `ci-scope`; package-level tools get `ci-rust-packages` / `ci-go-packages`; project-wide, slow or
+  networked steps (type checks, full test suites, builds, audits, anything needing services) run only
+  when `CI=true`, and the hook says it left them to CI.
+
 ### Skipping
 
 - `ECLEAN_SKIP_VERIFY=1 git commit ...` skips the verify only, with a loud warning. The repo's
