@@ -71,6 +71,10 @@ on:
         description: "Name of the coverage comment and baseline artifact; defaults to the repository name"
         type: string
         default: ""
+      reuse-results:
+        description: "Skip the checks when the same job already passed on the same git tree"
+        type: boolean
+        default: true
       timeout-minutes:
         type: number
         default: 30
@@ -100,6 +104,15 @@ jobs:
         with:
           filters: ${{ inputs.filters }}
           full-patterns: ${{ inputs.full-patterns }}
+          push-diff: ${{ inputs.coverage-file == '' }}
+      - name: Earlier result
+        id: results
+        if: inputs.reuse-results && github.event_name != 'schedule'
+        uses: $/.github/actions/test-results
+        with:
+          mode: lookup
+          kind: go-ci
+          variant: ${{ inputs.working-directory }}|${{ inputs.env }}|${{ inputs.tools }}
       - name: Set up Go (GitHub-hosted runners)
         if: runner.environment == 'github-hosted'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -110,10 +123,26 @@ jobs:
         env:
           INPUT_ENV: ${{ inputs.env }}
           MATCHES: ${{ steps.changes.outputs.matches }}
+          # The default branch reports the coverage baseline, so it runs anyway.
+          REUSE: >-
+            ${{ steps.results.outputs.hit == 'true' && !(inputs.coverage-file != '' &&
+            github.ref_name == github.event.repository.default_branch) }}
+          RESULT_URL: ${{ steps.results.outputs.run-url }}
         run: |
           printf '%s\n' "$INPUT_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
+          # On the self-hosted runners GOTOOLCHAIN=auto only upgrades; pin go.mod's exact toolchain
+          # (fetched once into the shared module cache) when it names one.
+          if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+            pin="$(go mod edit -json | jq -r 'if .Toolchain then .Toolchain.Name elif (.Go | test("^[0-9]+[.][0-9]+[.][0-9]+$")) then "go" + .Go else empty end')"
+            if [ -n "$pin" ]; then export GOTOOLCHAIN="$pin"; echo "GOTOOLCHAIN=$pin" >> "$GITHUB_ENV"; fi
+          fi
           go version
           code="$(jq -r '.code // true' <<< "$MATCHES")"
+          if [ "$code" = true ] && [ "$REUSE" = true ]; then
+            echo "Passed on this tree in ${RESULT_URL:-an earlier run}: skipped." >> "$GITHUB_STEP_SUMMARY"
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+            code=false
+          fi
           if [ "$code" = true ]; then
             packages="$(ci-go-packages | tr '\n' ' ' | sed 's/ $//')"
             echo "PACKAGES=$packages" >> "$GITHUB_ENV"
@@ -139,7 +168,7 @@ jobs:
           image: ${{ inputs.postgres }}
       - parallel:
           - name: Format
-            if: steps.changes.outputs.full == 'true' || steps.run.outputs.code == 'true'
+            if: steps.run.outputs.code == 'true' || (steps.changes.outputs.full == 'true' && steps.run.outputs.reused != 'true')
             env:
               CMD: ${{ inputs.format }}
             run: bash -euo pipefail -c "$CMD"
@@ -167,11 +196,19 @@ jobs:
           name: ${{ inputs.coverage-name != '' && inputs.coverage-name || github.event.repository.name }}
           format: go
           file: ${{ inputs.working-directory }}/${{ inputs.coverage-file }}
+          compare: ${{ steps.changes.outputs.full == 'true' && 'all' || 'report-files' }}
       - name: Vulnerability audit
         if: ${{ !cancelled() && inputs.audit != '' }}
         env:
           CMD: ${{ inputs.audit }}
         run: bash -euo pipefail -c "$CMD"
+      - name: Record the result
+        if: ${{ success() && steps.run.outputs.code == 'true' && inputs.reuse-results }}
+        uses: $/.github/actions/test-results
+        with:
+          mode: record
+          kind: go-ci
+          variant: ${{ inputs.working-directory }}|${{ inputs.env }}|${{ inputs.tools }}
       - name: Stop Postgres
         if: ${{ always() && steps.postgres.outputs.container != '' }}
         env:

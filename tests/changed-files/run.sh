@@ -43,6 +43,13 @@ check "merge commit: files" "docs/x.md src/b.ts" "$(tr '\n' ' ' < "$t/eclean-cha
 check "merge commit: matches" '{"code":true,"docs":true}' "$(out matches)"
 run push
 check "push: full" true "$(out full)"
+INPUT_PUSH_DIFF=true PUSH_BEFORE="$base" run push
+check "push diff: not full" false "$(out full)"
+check "push diff: against the previous commit" "$base" "$(out base)"
+INPUT_PUSH_DIFF=true PUSH_BEFORE=0000000000000000000000000000000000000000 run push
+check "push diff: new branch is full" true "$(out full)"
+INPUT_PUSH_DIFF=true PUSH_FORCED=true PUSH_BEFORE="$base" run push
+check "push diff: forced push is full" true "$(out full)"
 run pull_request 'src/*'
 check "full pattern (deleted file counts)" true "$(out full)"
 check "full pattern: keeps the base" "$(git merge-base "$base" HEAD)" "$(out base)"
@@ -116,6 +123,20 @@ check "local-cache: prefix from default branch" "false k-1" "$(out cache-hit) $(
 : > "$t/out"; GITHUB_HEAD_REF=pr INPUT_KEY=k-3 bash "$lc/lib/local-cache.sh" save
 : > "$t/out"; INPUT_KEY=k-3 bash "$lc/lib/local-cache.sh" restore
 check "local-cache: main never reads a pull request's entry" "false" "$(out cache-hit)"
+: > "$t/out"; GITHUB_HEAD_REF=pr INPUT_SCOPE=shared INPUT_KEY=s-1 bash "$lc/lib/local-cache.sh" save
+rm -rf src
+: > "$t/out"; INPUT_SCOPE=shared INPUT_LOOKUP_ONLY=true INPUT_KEY=s-1 bash "$lc/lib/local-cache.sh" restore
+check "local-cache: shared scope seen from another ref" true "$(out cache-hit)"
+check "local-cache: lookup-only restores nothing" false "$([ -d src ] && echo true || echo false)"
+: > "$t/out"; INPUT_SCOPE=shared INPUT_KEY=s-1 bash "$lc/lib/local-cache.sh" restore
+check "local-cache: shared scope restored" b.ts "$(ls src)"
+# A 2 MB entry under a 1 GB cap with the disk 100% "free-reserved": eviction cannot make room, so the
+# save is skipped instead of filling the disk.
+head -c 2097152 /dev/zero > src/big
+: > "$t/out"; CI_LOCAL_CACHE_MIN_FREE_PCT=100 INPUT_KEY=k-big bash "$lc/lib/local-cache.sh" save > "$t/log"
+check "local-cache: no room, not saved" false "$([ -f "$t/cache/ecleangg/selftest/main/k-big.tar" ] && echo true || echo false)"
+check "local-cache: other refs evicted first" "false true" \
+  "$([ -f "$t/cache/ecleangg/selftest/pr/k-3.tar" ] && echo true || echo false) $(grep -q 'evicted.*/pr/' "$t/log" && echo true || echo false)"
 : > "$t/out"; INPUT_BACKEND=auto bash "$lc/lib/decide.sh"
 check "local-cache: local backend chosen" true "$(out local)"
 

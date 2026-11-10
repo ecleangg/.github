@@ -3,7 +3,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const { parse, totals, pct, fmt, renderReport } = require("./parsers");
+const { parse, totals, restrictBaseline, pct, fmt, renderReport } = require("./parsers");
 
 const env = process.env;
 const name = env.COVERAGE_NAME;
@@ -32,7 +32,13 @@ function main() {
     baselineNote = env.COVERAGE_BASELINE_NOTE;
   }
 
-  const md = renderReport({ name, format: env.COVERAGE_FORMAT, current, baseline, baselineNote });
+  let scopeNote = "";
+  if (env.COVERAGE_COMPARE === "report-files") {
+    const n = Object.keys(current.files).length;
+    scopeNote = `Partial run: only the changed code's tests ran. Baseline and delta cover the same ${n} files.`;
+    baseline = restrictBaseline(baseline, current.files);
+  }
+  const md = renderReport({ name, format: env.COVERAGE_FORMAT, current, baseline, baselineNote, scopeNote });
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(path.join(outDir, "report.md"), md);
   fs.writeFileSync(path.join(outDir, `coverage-${name}.json`), JSON.stringify(current));

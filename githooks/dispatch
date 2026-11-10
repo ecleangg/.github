@@ -3,12 +3,15 @@
 #
 # pre-commit runs the repository's own hook first, if it has one: .githooks/pre-commit, else
 # .husky/pre-commit, else `lefthook run pre-commit` when lefthook is configured and installed.
-# It then runs the repository's full verify command (`bun run verify`, then `cargo xtask verify`,
-# then `make verify`); a failing verify blocks the commit. Set ECLEAN_SKIP_VERIFY=1 to skip the full
-# verify step (loudly logged), or use `git commit --no-verify` to skip every hook. Every other hook
-# does nothing of its own: heavy checks run in CI. Every hook then chains to the repository's
-# .git/hooks/<name>, so installing the global hooks path does not silently disable hooks a clone
-# already had.
+# It then runs the repository's verify command (`bun run verify`, then `cargo xtask verify`, then
+# `make verify`) on the staged files only, with the same contract CI uses: CI_CHANGES_FULL=false,
+# CI_CHANGES_FILES (the staged paths), CI_CHANGES_BASE=HEAD, and ci-scope, ci-rust-packages and
+# ci-go-packages on PATH. A verify that never reads that contract would check the whole repository,
+# so it is left to CI (ECLEAN_FULL_VERIFY=1 runs it anyway). A staged tree that already passed is not
+# verified again (amends, re-commits). A failing verify blocks the commit. ECLEAN_SKIP_VERIFY=1 skips
+# the verify step (loudly logged); `git commit --no-verify` skips every hook. Every other hook does
+# nothing of its own. Every hook then chains to the repository's .git/hooks/<name>, so installing the
+# global hooks path does not silently disable hooks a clone already had.
 set -uo pipefail
 
 name="${1:?hook name}"
@@ -22,6 +25,12 @@ detect_verify_cmd() {
   elif [ -f Makefile ] && grep -q '^verify:' Makefile; then echo "make verify"
   else return 1
   fi
+}
+
+# change_aware: true when the verify chain reads the changed-files contract (ci-scope and friends).
+change_aware() {
+  git grep -qE 'ci-scope|ci-rust-packages|ci-go-packages|CI_CHANGES_(FULL|FILES|BASE)' -- \
+    package.json Makefile xtask scripts dev .githooks 2> /dev/null
 }
 
 # A repo-local core.hooksPath wins. Git does not call this dispatcher then; if it is reached
@@ -47,14 +56,45 @@ if [ "$name" = pre-commit ]; then
     lefthook run pre-commit "$@" || exit $?
   fi
 
+  gitdir_local="$(git rev-parse --absolute-git-dir)"
+  staged="$gitdir_local/eclean-staged-files"
+  git diff --cached --name-only --no-renames --diff-filter=d > "$staged"
   if [ "${ECLEAN_SKIP_VERIFY:-0}" = 1 ]; then
-    echo "eclean-githooks: *** ECLEAN_SKIP_VERIFY=1 set; skipping full verify for this commit ***" >&2
+    echo "eclean-githooks: *** ECLEAN_SKIP_VERIFY=1 set; skipping verify for this commit ***" >&2
+  elif [ ! -s "$staged" ]; then
+    : # Nothing staged to check (deletions only, --allow-empty).
   elif cmd="$(detect_verify_cmd)"; then
-    echo "eclean-githooks: running full verify before commit: $cmd" >&2
-    if ! out="$(bash -c "$cmd" 2>&1)"; then
-      echo "eclean-githooks: verify failed ($cmd); commit blocked" >&2
-      printf '%s\n' "$out" | tail -n 40 >&2
-      exit 1
+    tree="$(git write-tree)"
+    passed="$gitdir_local/eclean-verified"
+    full="${ECLEAN_FULL_VERIFY:-0}"
+    if [ -f "$passed/$tree" ]; then
+      echo "eclean-githooks: staged tree ${tree:0:12} already passed $cmd; not verifying again" >&2
+    elif [ "$full" != 1 ] && ! change_aware; then
+      echo "eclean-githooks: $cmd checks the whole repository (it does not use ci-scope); CI runs it. ECLEAN_FULL_VERIFY=1 runs it here" >&2
+    else
+      if [ "$full" = 1 ]; then
+        echo "eclean-githooks: running full verify before commit: $cmd" >&2
+        export CI_CHANGES_FULL=true
+      else
+        echo "eclean-githooks: verifying $(grep -c . "$staged") staged files: $cmd" >&2
+        export CI_CHANGES_FULL=false CI_CHANGES_FILES="$staged" CI_CHANGES_BASE=HEAD
+      fi
+      export PATH="$self/bin:$PATH"
+      # Git sets these for the hook; with GIT_DIR set, `git rev-parse --show-toplevel` (ci-rust-packages,
+      # ci-go-packages) returns the current directory instead of the work tree. The staged list is
+      # already written, so the tools find the repository from the work tree like a shell would.
+      if ! out="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_PREFIX bash -c "$cmd" 2>&1)"; then
+        echo "eclean-githooks: verify failed ($cmd); commit blocked" >&2
+        printf '%s\n' "$out" | tail -n 40 >&2
+        exit 1
+      fi
+      # The tools read the working tree: only remember the tree when it is what was staged.
+      if git diff --quiet; then
+        mkdir -p "$passed" && : > "$passed/$tree"
+        # Keep the 50 newest.
+        # shellcheck disable=SC2012 # Plain hex names.
+        ls -1t "$passed" | tail -n +51 | while IFS= read -r old; do rm -f "$passed/$old"; done
+      fi
     fi
   fi
 fi

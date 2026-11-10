@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { parse, totals, pct, delta, renderReport } = require("./parsers");
+const { parse, totals, restrictBaseline, pct, delta, renderReport } = require("./parsers");
 
 const fixtures = path.join(__dirname, "..", "..", "..", "tests", "fixtures", "coverage");
 const read = (f) => fs.readFileSync(path.join(fixtures, f), "utf8");
@@ -94,4 +94,13 @@ test("report: Go is labelled as statements and has no branch row", () => {
   const md = renderReport({ name: "api", format: "go", current: { totals: totals({ files }), files }, baseline: null });
   assert.match(md, /\| Statements \| 87\.50% \(7\/8\)/);
   assert.ok(!md.includes("| Branches"));
+});
+
+test("restrictBaseline: a partial report compares against the same files only", () => {
+  const f = (c, t) => ({ lines: { covered: c, total: t }, branches: { covered: 0, total: 0 } });
+  const baseline = { commit: "abc", files: { "a.rs": f(5, 10), "b.rs": f(10, 10) } };
+  const r = restrictBaseline(baseline, { "a.rs": f(6, 10) });
+  assert.deepEqual(Object.keys(r.files), ["a.rs"]);
+  assert.equal(pct(r.totals.lines), 50);
+  assert.equal(restrictBaseline(null, {}), null);
 });

@@ -113,6 +113,11 @@ full() {
 
 case "$EVENT_NAME" in
   pull_request | pull_request_target) ;;
+  push)
+    [ "${INPUT_PUSH_DIFF:-false}" = true ] || full "\`push\` event"
+    [ "${PUSH_FORCED:-false}" != true ] || full "forced push"
+    [[ "${PUSH_BEFORE:-}" =~ ^[0-9a-f]{40}$ && ! "$PUSH_BEFORE" =~ ^0+$ ]] || full "new branch"
+    ;;
   *) full "\`$EVENT_NAME\` event" ;;
 esac
 
@@ -136,7 +141,17 @@ fetch() {
 # base branch, so the diff against it is exactly the pull request. One extra commit is enough.
 base=""
 parents="$(git rev-list --parents -n 1 HEAD)"
-if [ "$(wc -w <<< "$parents")" -eq 3 ]; then
+if [ "$EVENT_NAME" = push ]; then
+  # The commit the branch was at before the push; the usual squash merge is HEAD^ (fetch-depth 2).
+  base="$PUSH_BEFORE"
+  git cat-file -e "$base^{commit}" 2> /dev/null || fetch --depth=1 origin "$base" || full "previous commit not fetchable"
+  depth=32
+  until [ "$(git rev-parse -q --verify HEAD^ 2> /dev/null)" = "$base" ] || git merge-base --is-ancestor "$base" HEAD 2> /dev/null; do
+    [ "$depth" -le 4096 ] || full "previous commit not an ancestor within 4096 commits"
+    fetch --deepen="$depth" origin HEAD || full "could not deepen the history"
+    depth=$((depth * 2))
+  done
+elif [ "$(wc -w <<< "$parents")" -eq 3 ]; then
   base="$(cut -d' ' -f2 <<< "$parents")"
   git cat-file -e "$base^{commit}" 2> /dev/null || fetch --depth=1 origin "$base" || full "base commit not fetchable"
 else

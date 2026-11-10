@@ -8,8 +8,14 @@
 #   pin or tool configuration check the whole workspace (`--workspace`).
 # - The toolchain comes from rust-toolchain.toml through rustup (on the self-hosted runners in the
 #   shared RUSTUP_HOME), rustc runs behind the runner's sccache, and `target` is kept on the runner's
-#   disk between runs (actions/local-cache): saved from the default branch once per toolchain and
-#   Cargo.lock (compiled dependencies are what it saves; sccache covers the rest).
+#   disk between runs (actions/local-cache). The entry is per job variant (the steps it runs, `env`,
+#   `tools`, `cache-key`), toolchain and Cargo.lock, so two jobs building different things never share
+#   one. It holds the compiled dependencies only (workspace members, incremental state, coverage data
+#   are trimmed before saving). Any ref saves when no entry for its key exists in its own ref or the
+#   default branch; others fall back to the newest entry of the same variant and toolchain.
+# - When the same job variant already passed on the same git tree (the push of a merged pull request,
+#   a re-run, a manual run), its checks are skipped (actions/test-results; `reuse-results`). The
+#   default branch still runs when it has coverage to report or no `target` entry for its key yet.
 # - `setup` runs after the toolchain and before format and lint (install dependencies, generate code).
 # - `compose-file` starts a Docker Compose stack before the tests and removes it (`down -v`) at the
 #   end, under a project name unique to the run. Compose files with fixed container names or ports
@@ -107,6 +113,14 @@ on:
         description: "Keep target/ between runs"
         type: boolean
         default: true
+      cache-key:
+        description: "Extra part of the target cache and test result keys, for callers whose jobs differ only in their commands"
+        type: string
+        default: ""
+      reuse-results:
+        description: "Skip the checks when this job variant already passed on the same git tree"
+        type: boolean
+        default: true
       timeout-minutes:
         type: number
         default: 45
@@ -142,14 +156,59 @@ jobs:
         with:
           filters: ${{ inputs.filters }}
           full-patterns: ${{ inputs.full-patterns }}
+          push-diff: ${{ inputs.coverage == '' }}
+      - name: Cache keys
+        id: keys
+        env:
+          # What tells this job apart from another on the same tree. The commands themselves are in
+          # the caller's workflow file, which the tree already pins (and may carry run-specific values).
+          VARIANT: >-
+            ${{ inputs.working-directory }}|${{ inputs.cache-key }}|${{ inputs.tools }}|${{ inputs.env }}|
+            ${{ inputs.format != '' }}${{ inputs.lint != '' }}${{ inputs.test != '' }}${{ inputs.extra != '' }}${{ inputs.coverage != '' }}
+          TOOLCHAIN: ${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}
+          LOCK: ${{ hashFiles('**/Cargo.lock') }}
+        run: |
+          variant="$(printf '%s' "$VARIANT" | sha256sum | cut -c1-12)"
+          {
+            echo "variant=$variant"
+            echo "target-prefix=rust-target-$RUNNER_OS-$variant-"
+            echo "target-toolchain=rust-target-$RUNNER_OS-$variant-$TOOLCHAIN-"
+            echo "target=rust-target-$RUNNER_OS-$variant-$TOOLCHAIN-$LOCK"
+          } >> "$GITHUB_OUTPUT"
+      - name: Earlier result
+        id: results
+        if: inputs.reuse-results && github.event_name != 'schedule'
+        uses: $/.github/actions/test-results
+        with:
+          mode: lookup
+          kind: rust-ci
+          variant: ${{ steps.keys.outputs.variant }}
+      - name: Target entry of the default branch
+        id: target-present
+        if: steps.results.outputs.hit == 'true' && inputs.cache-target && github.ref_name == github.event.repository.default_branch
+        uses: $/.github/actions/local-cache/restore
+        with:
+          path: target
+          working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
+          key: ${{ steps.keys.outputs.target }}
+          lookup-only: true
       - name: Export env and the affected members
         id: run
         env:
           INPUT_ENV: ${{ inputs.env }}
           MATCHES: ${{ steps.changes.outputs.matches }}
+          # The default branch runs anyway when it reports coverage (the baseline) or has no target entry.
+          REUSE: >-
+            ${{ steps.results.outputs.hit == 'true' && !(github.ref_name == github.event.repository.default_branch &&
+            (inputs.coverage != '' || (inputs.cache-target && steps.target-present.outputs.cache-hit != 'true'))) }}
+          RESULT_URL: ${{ steps.results.outputs.run-url }}
         run: |
           printf '%s\n' "$INPUT_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
           code="$(jq -r '.code // true' <<< "$MATCHES")"
+          if [ "$code" = true ] && [ "$REUSE" = true ]; then
+            echo "Checks passed on this tree in ${RESULT_URL:-an earlier run}: skipped." >> "$GITHUB_STEP_SUMMARY"
+            code=false
+          fi
           if [ "$code" = true ]; then
             packages="$(ci-rust-packages)"
             echo "PACKAGES=$packages" >> "$GITHUB_ENV"
@@ -178,9 +237,8 @@ jobs:
         with:
           path: target
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
-          key: rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-
+          key: ${{ steps.keys.outputs.target }}
+          restore-keys: ${{ steps.keys.outputs.target-toolchain }}
       - name: Postgres
         id: postgres
         if: steps.run.outputs.code == 'true' && inputs.postgres != ''
@@ -244,6 +302,7 @@ jobs:
           name: ${{ inputs.coverage-name != '' && inputs.coverage-name || github.event.repository.name }}
           format: lcov
           file: ${{ inputs.working-directory }}/${{ inputs.coverage-file }}
+          compare: ${{ steps.changes.outputs.full == 'true' && 'all' || 'report-files' }}
       - name: Dependency audit
         if: ${{ !cancelled() && inputs.audit != '' }}
         env:
@@ -265,11 +324,42 @@ jobs:
         env:
           CONTAINER: ${{ steps.postgres.outputs.container }}
         run: docker rm -f "$CONTAINER" > /dev/null
+      - name: Record the result
+        if: ${{ success() && steps.run.outputs.code == 'true' && inputs.reuse-results }}
+        uses: $/.github/actions/test-results
+        with:
+          mode: record
+          kind: rust-ci
+          variant: ${{ steps.keys.outputs.variant }}
+      # Any ref saves when neither it nor the default branch has an entry for the key (a pull request
+      # changing Cargo.lock keeps its compiled dependencies for its next push).
+      - name: Trim target
+        id: trim
+        if: ${{ success() && steps.run.outputs.code == 'true' && inputs.cache-target && steps.cache.outputs.cache-hit != 'true' }}
+        run: |
+          # Keep the compiled dependencies: workspace members rebuild from source (behind sccache), and
+          # incremental state, coverage data and test binaries only make the entry bigger.
+          [ -d target ] || exit 0
+          before="$(du -sh target | cut -f1)"
+          names="$(cargo metadata --format-version 1 --no-deps --offline | jq -r '.packages[] | .name, .targets[].name' | sort -u)"
+          while IFS= read -r fingerprint; do
+            dir="$(dirname "$fingerprint")"
+            rm -rf "$dir/incremental" "$dir/examples"
+            find "$dir" -maxdepth 1 -type f -delete
+            while IFS= read -r name; do
+              [ -n "$name" ] || continue
+              u="${name//-/_}"
+              rm -rf "$dir/.fingerprint/$name-"* "$dir/build/$name-"* "$dir/deps/$u-"* "$dir/deps/lib$u-"* "$dir/deps/lib$u."*
+            done <<< "$names"
+          done < <(find target -type d -name .fingerprint -prune)
+          find target -type f \( -name '*.profraw' -o -name '*.profdata' \) -delete
+          rm -rf target/nextest target/tmp target/doc target/llvm-cov-target/tmp
+          echo "Target for the cache: $before trimmed to $(du -sh target | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
       - name: Save target
-        if: ${{ success() && steps.run.outputs.code == 'true' && inputs.cache-target && steps.cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch }}
+        if: ${{ success() && steps.trim.outcome == 'success' }}
         uses: $/.github/actions/local-cache/save
         with:
           path: target
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
-          key: rust-target-${{ runner.os }}-${{ hashFiles('**/rust-toolchain.toml', '**/rust-toolchain') }}-${{ hashFiles('**/Cargo.lock') }}
-          supersedes: rust-target-${{ runner.os }}-
+          key: ${{ steps.keys.outputs.target }}
+          supersedes: ${{ steps.keys.outputs.target-prefix }}

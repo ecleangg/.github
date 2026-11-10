@@ -43,6 +43,10 @@ on:
         description: "hashFiles pattern of the files whose content keys cache-paths"
         type: string
         default: "**/*.lock"
+      reuse-results:
+        description: "Skip the checks when the same job already passed on the same git tree"
+        type: boolean
+        default: true
       timeout-minutes:
         type: number
         default: 20
@@ -71,14 +75,28 @@ jobs:
         with:
           filters: ${{ inputs.filters }}
           full-patterns: ${{ inputs.full-patterns }}
+      - name: Earlier result
+        id: results
+        if: inputs.reuse-results && github.event_name != 'schedule'
+        uses: $/.github/actions/test-results
+        with:
+          mode: lookup
+          kind: verify
+          variant: ${{ inputs.working-directory }}|${{ inputs.env }}
       - name: Export env
         id: run
         env:
           INPUT_ENV: ${{ inputs.env }}
           MATCHES: ${{ steps.changes.outputs.matches }}
+          REUSE: ${{ steps.results.outputs.hit == 'true' }}
+          RESULT_URL: ${{ steps.results.outputs.run-url }}
         run: |
           printf '%s\n' "$INPUT_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
           code="$(jq -r '.code // true' <<< "$MATCHES")"
+          if [ "$code" = true ] && [ "$REUSE" = true ]; then
+            echo "Passed on this tree in ${RESULT_URL:-an earlier run}: skipped." >> "$GITHUB_STEP_SUMMARY"
+            code=false
+          fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           [ "$code" = true ] || echo "Nothing to verify changed: skipping." >> "$GITHUB_STEP_SUMMARY"
       - name: Restore caches
@@ -88,9 +106,9 @@ jobs:
         with:
           path: ${{ inputs.cache-paths }}
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
-          key: verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key) }}-${{ github.sha }}
+          key: verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key, '!**/node_modules/**') }}-${{ github.sha }}
           restore-keys: |
-            verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key) }}-
+            verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key, '!**/node_modules/**') }}-
             verify-${{ runner.os }}-
       - name: Verify
         if: steps.run.outputs.code == 'true'
@@ -106,11 +124,19 @@ jobs:
           fi
           echo "Running: $CMD"
           bash -euo pipefail -c "$CMD"
+      - name: Record the result
+        if: ${{ success() && steps.run.outputs.code == 'true' && inputs.reuse-results }}
+        uses: $/.github/actions/test-results
+        with:
+          mode: record
+          kind: verify
+          variant: ${{ inputs.working-directory }}|${{ inputs.env }}
+      # Every ref keeps its newest entry (supersedes is per ref); the weekly prune drops idle refs'.
       - name: Save caches
-        if: ${{ success() && inputs.cache-paths != '' && steps.cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch }}
+        if: ${{ success() && steps.run.outputs.code == 'true' && inputs.cache-paths != '' && steps.cache.outputs.cache-hit != 'true' }}
         uses: $/.github/actions/local-cache/save
         with:
           path: ${{ inputs.cache-paths }}
           working-directory: ${{ github.workspace }}/${{ inputs.working-directory }}
-          key: verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key) }}-${{ github.sha }}
+          key: verify-${{ runner.os }}-${{ hashFiles(inputs.cache-key, '!**/node_modules/**') }}-${{ github.sha }}
           supersedes: verify-${{ runner.os }}-

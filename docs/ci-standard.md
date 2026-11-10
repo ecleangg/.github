@@ -71,23 +71,37 @@ native column themselves.
   `filters` decides whether the code steps run at all. Commands use `ci-scope` (format, lint),
   `vitest run --changed "$CI_CHANGES_BASE"` (tests), `ci-rust-packages` (`-p` arguments) and
   `ci-go-packages` (import paths).
-- Pushes, schedules, manual runs, merge queues, pull requests touching a lockfile, a toolchain pin or
-  tool configuration (built-in list, extended with `full-patterns`), and pull requests changing more
-  than `max-files` files (400) check everything.
+- A push checks what changed since the commit the branch was at before it (`github.event.before`;
+  `push-diff`), the same way. Jobs reporting a coverage baseline turn that off and check everything.
+- Schedules, manual runs, merge queues, forced pushes, new branches, changes touching a lockfile, a
+  toolchain pin or tool configuration (built-in list, extended with `full-patterns`), and changes of
+  more than `max-files` files (400) check everything.
 - A docs-only pull request (nothing matches the `code` filter) skips the steps, but the `Verify` job
   still runs and reports success, so `Verify` is the one check branch protection needs. There is no
   separate summary job: each costs a runner start on a small pool. A repo calling several workflows
   keeps one summary job of its own.
 - Audits (`audit` input) are not scoped by changes; they run on every non-draft event.
 
+## Test results
+
+A job that passes records it against the git tree it ran on (`actions/test-results`: job kind, runner
+OS, a hash of the inputs that tell jobs apart, and the tree). Another run on the same tree skips its
+checks and links the run that passed: the push of a squash-merged pull request (its tree is the
+pull request's merge commit), re-runs, manual runs. The caller's commands live in its workflow file,
+which is part of the tree, so a changed command is a different tree. Exceptions: schedules always
+run, audits always run, and the default branch still runs when it reports a coverage baseline or
+(Rust) has no `target` entry for its key yet. `reuse-results: false` turns it off. Entries are in
+local-cache's shared scope on the self-hosted runners; GitHub-hosted runners never skip.
+
 ## Caching
 
 | What | Where | Details |
 | --- | --- | --- |
 | Tool caches (cargo, rustup, sccache, bun, npm, go, uv, toolcache, Playwright) | Runner disk, shared by the lanes | Nothing to configure |
-| Workspace paths (`cache-paths`, `build-cache-paths`) | `actions/local-cache` | `$CI_LOCAL_CACHE/<owner>/<repo>/<ref>/<key>.tar`; reads the run's own ref first, then the default branch; entries are immutable; a save with `supersedes` deletes the older entries of its key family; the oldest are evicted past `CI_LOCAL_CACHE_MAX_GB` (40) or when the disk is under `CI_LOCAL_CACHE_MIN_FREE_PCT` (20) percent free. Falls back to `actions/cache` where the variable is unset |
-| Rust `target/` | `actions/local-cache` | Restored by every run, saved from the default branch once per toolchain and `Cargo.lock`. sccache covers the rest. Off with `cache-target: false` |
-| BuildKit layers (`docker-build.yml`) | `$CI_LOCAL_CACHE/<owner>/<repo>/buildx/<name>` | Read by every run, written from the default branch; GitHub-hosted runners use the Actions cache |
+| Workspace paths (`cache-paths`, `build-cache-paths`) | `actions/local-cache` | `$CI_LOCAL_CACHE/<owner>/<repo>/<ref>/<key>.tar`; reads the run's own ref first, then the default branch; every ref saves its own entry and `supersedes` keeps only its newest; entries are immutable. A save first makes room for itself: other refs' entries go first, then the default branch's, oldest last use first, until the cache stays under `CI_LOCAL_CACHE_MAX_GB` (40) and the disk keeps `CI_LOCAL_CACHE_MIN_FREE_PCT` (20) percent free with the new entry on it; when that is impossible the save is skipped with a warning. Falls back to `actions/cache` where the variable is unset |
+| Rust `target/` | `actions/local-cache` | One entry per job variant (enabled steps, `env`, `tools`, `cache-key`), toolchain and `Cargo.lock`, so jobs building different things (clippy and tests, coverage) never share one. Holds compiled dependencies only: workspace members, incremental state, coverage data and test binaries are trimmed before saving. Restored by every run (same variant and toolchain as fallback); any ref saves when no entry for the exact key exists. sccache covers the rest. Off with `cache-target: false` |
+| Test results | `actions/test-results` (local-cache, shared scope) | See [Test results](#test-results) |
+| BuildKit layers and `RUN --mount=type=cache` (`docker-build.yml`) | The Docker daemon's BuildKit on the runner | Self-hosted builds use the buildx `docker` driver, so layers and cache mounts persist and every branch shares them; the daemon's builder GC (playbooks `docker` role) bounds them. GitHub-hosted runners use the Actions cache, written from the default branch |
 | Trivy vulnerability DB | `$CI_LOCAL_CACHE/trivy-db/<day>` | One download per day per host |
 | Scanner binaries (Trivy, actionlint, zizmor, TruffleHog, OSV-Scanner, Opengrep) | `$RUNNER_TOOL_CACHE/eclean-downloads/<sha256>` | Keyed by the pinned digest and re-verified with `sha256sum -c` on every use |
 
@@ -161,6 +175,7 @@ is posted by [`pr-comments`](#pr-comments).
 | `cache-paths` | empty | Workspace paths kept between verify runs (`.svelte-kit`, `node_modules/.cache`) |
 | `build` | empty | Build command(s); empty skips the build job |
 | `build-cache-paths` | empty | Workspace paths kept between build runs |
+| `reuse-results` | `true` | Skip the checks when the job already passed on the same tree ([Test results](#test-results)) |
 | `verify-timeout-minutes` | `30` | Verify job limit |
 | `build-timeout-minutes` | `20` | Build job limit |
 
@@ -208,6 +223,8 @@ must grant it). The coverage comment is posted by [`pr-comments`](#pr-comments).
 | `coverage-name` | repository name | Name of the coverage comment and baseline artifact |
 | `audit` | empty | e.g. `cargo deny check advisories`; every non-draft event |
 | `cache-target` | `true` | Keep `target/` between runs |
+| `cache-key` | empty | Extra part of the `target` and result keys, for jobs that differ only in their commands |
+| `reuse-results` | `true` | Skip the checks when this job variant already passed on the same tree |
 | `timeout-minutes` | `45` | Job limit |
 
 ```yaml
@@ -249,6 +266,7 @@ version). Permissions: `contents: read`.
 | `audit` | empty | e.g. `govulncheck ./...`; every non-draft event |
 | `coverage-file` | empty | Go coverage profile (`-coverprofile`) for `actions/coverage-summary` |
 | `coverage-name` | repository name | Coverage comment and baseline artifact name |
+| `reuse-results` | `true` | Skip the checks when the job already passed on the same tree ([Test results](#test-results)) |
 | `timeout-minutes` | `30` | Job limit |
 
 ```yaml
@@ -278,6 +296,7 @@ Permissions: `contents: read`.
 | `full-patterns` | empty | Extra globs that make a pull request check everything |
 | `cache-paths` | empty | Workspace paths kept between runs |
 | `cache-key` | `**/*.lock` | `hashFiles` pattern keying `cache-paths` |
+| `reuse-results` | `true` | Skip the checks when the job already passed on the same tree ([Test results](#test-results)) |
 | `timeout-minutes` | `20` | Job limit |
 
 ```yaml
@@ -575,6 +594,7 @@ history (the base commit is fetched with `token`). Puts `ci-scope`, `ci-go-packa
 | `filters` | empty | `name: glob !glob` lines; each becomes a key of `matches` |
 | `token` | `github.token` | Token to fetch the base commit with |
 | `max-files` | `400` | More changed files than this runs everything |
+| `push-diff` | `true` | On a push, check the files changed since `github.event.before` (not on forced pushes or new branches) |
 
 | Output | Meaning |
 | --- | --- |
@@ -622,6 +642,8 @@ variable is not set. Save never overwrites an existing key. Layout and eviction:
 | `working-directory` | `github.workspace` | Directory the paths are relative to |
 | `backend` | `auto` | `auto`, `local` or `remote`; `local` fails when the disk cache is not available |
 | `restore-keys` | empty | Restore only: key prefixes tried in order on a miss |
+| `scope` | `ref` | `ref`, or `shared`: one scope every ref reads and writes, for keys that pin their content (a tree hash) |
+| `lookup-only` | `false` | Restore only: report `cache-hit` and `matched-key` without extracting |
 
 Restore outputs: `cache-hit` (exact match), `matched-key`, `backend` (`local` or `remote`). Save has no
 outputs. Permissions: none.
@@ -637,6 +659,29 @@ outputs. Permissions: none.
   with:
     path: .svelte-kit
     key: svelte-${{ hashFiles('bun.lock') }}
+```
+
+#### actions/test-results
+
+Remembers that a job's checks passed on a git tree (see [Test results](#test-results)). `mode: lookup`
+before the checks sets `hit` (and `run-url`); `mode: record` after they passed stores the result.
+`kind` names the job, `variant` is everything besides the tree that decides the outcome, `path` the
+directory whose tree counts (default the whole repository). Only on runners with `CI_LOCAL_CACHE`;
+elsewhere a lookup misses and a record does nothing.
+
+```yaml
+- id: results
+  uses: ecleangg/.github/.github/actions/test-results@<sha> # <ref>
+  with:
+    mode: lookup
+    kind: e2e
+- if: steps.results.outputs.hit != 'true'
+  run: bunx playwright test
+- if: success() && steps.results.outputs.hit != 'true'
+  uses: ecleangg/.github/.github/actions/test-results@<sha> # <ref>
+  with:
+    mode: record
+    kind: e2e
 ```
 
 #### actions/postgres
