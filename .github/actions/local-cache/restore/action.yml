@@ -13,6 +13,16 @@ inputs:
     description: "Directory the paths are relative to"
     required: false
     default: ${{ github.workspace }}
+  scope:
+    description: >-
+      ref (the run's own ref, falling back to the default branch's entries) or shared (one scope for
+      every ref; only for entries whose key pins their content, such as a tree hash). Local backend only
+    required: false
+    default: ref
+  lookup-only:
+    description: "Only report whether an entry exists (cache-hit, matched-key); restore nothing"
+    required: false
+    default: "false"
   backend:
     description: "auto (the runner disk when CI_LOCAL_CACHE is set, else actions/cache), local or remote"
     required: false
@@ -50,6 +60,8 @@ runs:
         INPUT_RESTORE_KEYS: ${{ inputs.restore-keys }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        INPUT_SCOPE: ${{ inputs.scope }}
+        INPUT_LOOKUP_ONLY: ${{ inputs.lookup-only }}
       run: bash "$GITHUB_ACTION_PATH/../lib/local-cache.sh" restore
     - id: remote
       if: steps.backend.outputs.local != 'true'
@@ -58,3 +70,4 @@ runs:
         path: ${{ steps.backend.outputs.paths }}
         key: ${{ inputs.key }}
         restore-keys: ${{ inputs.restore-keys }}
+        lookup-only: ${{ inputs.lookup-only }}
