@@ -1,9 +1,10 @@
 # Builds a Docker image without pushing it, as a pull request check, and scans the result with
 # actions/trivy-image. Publishing (registry login, push, signing) is in ecleangg/.github-private.
 #
-# Draft pull requests skip it. On the self-hosted runners BuildKit's layer cache is a directory on the
-# runner's disk (CI_LOCAL_CACHE), read by every run and written from the default branch; on
-# GitHub-hosted runners it is the GitHub Actions cache.
+# Draft pull requests skip it. On the self-hosted runners the build runs on the Docker daemon's own
+# BuildKit (buildx `docker` driver), whose layer cache and RUN --mount=type=cache directories persist
+# on the runner and are shared by every branch and job; the daemon's builder GC bounds them. On
+# GitHub-hosted runners the layer cache is the GitHub Actions cache, written from the default branch.
 name: Docker build
 
 on:
@@ -76,6 +77,7 @@ jobs:
         env:
           NAME: ${{ inputs.name }}
           WRITE: ${{ github.ref_name == github.event.repository.default_branch }}
+          SELF_HOSTED: ${{ runner.environment == 'self-hosted' }}
           PACKAGES_SECRET: ${{ inputs.packages-secret }}
           TOKEN: ${{ github.token }}
         run: |
@@ -84,19 +86,18 @@ jobs:
             if [ "$PACKAGES_SECRET" = true ]; then echo "github_packages_token=$TOKEN"; fi
             echo "ECLEAN_EOF"
           } >> "$GITHUB_OUTPUT"
-          if [ -n "${CI_LOCAL_CACHE:-}" ] && [ -w "$CI_LOCAL_CACHE" ]; then
-            dir="$CI_LOCAL_CACHE/$GITHUB_REPOSITORY/buildx/$NAME"
-            mkdir -p "$dir"
-            echo "from=type=local,src=$dir" >> "$GITHUB_OUTPUT"
-            # BuildKit replaces a local cache directory in place; write a fresh one and swap it in.
-            if [ "$WRITE" = true ]; then echo "to=type=local,dest=$dir.new,mode=max" >> "$GITHUB_OUTPUT"; fi
-            echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          # Self-hosted: the daemon's BuildKit keeps its cache itself, nothing to import or export.
+          if [ "$SELF_HOSTED" = true ]; then
+            echo "driver=docker" >> "$GITHUB_OUTPUT"
           else
+            echo "driver=docker-container" >> "$GITHUB_OUTPUT"
             echo "from=type=gha,scope=$NAME" >> "$GITHUB_OUTPUT"
             if [ "$WRITE" = true ]; then echo "to=type=gha,scope=$NAME,mode=max" >> "$GITHUB_OUTPUT"; fi
           fi
       - if: fromJSON(steps.changes.outputs.matches).image
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: ${{ steps.cache.outputs.driver }}
       - name: Build
         if: fromJSON(steps.changes.outputs.matches).image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -113,15 +114,6 @@ jobs:
           cache-to: ${{ steps.cache.outputs.to }}
           github-token: ""
           secrets: ${{ steps.cache.outputs.secrets }}
-      - name: Swap in the new layer cache
-        if: success() && steps.cache.outputs.dir != '' && steps.cache.outputs.to != ''
-        env:
-          DIR: ${{ steps.cache.outputs.dir }}
-        run: |
-          rm -rf "$DIR.old"
-          if [ -d "$DIR" ]; then mv "$DIR" "$DIR.old"; fi
-          mv "$DIR.new" "$DIR"
-          rm -rf "$DIR.old"
       - name: Scan
         if: fromJSON(steps.changes.outputs.matches).image && inputs.scan
         uses: $/.github/actions/trivy-image
