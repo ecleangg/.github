@@ -53,6 +53,10 @@ on:
         description: "Multi-line script run after the toolchain and before format and lint, e.g. bun install --frozen-lockfile or code generation"
         type: string
         default: ""
+      bun-version-file:
+        description: "File pinning the Bun version the setup uses (package.json packageManager/engines.bun, or .bun-version), relative to the repository root; empty: the runner's Bun"
+        type: string
+        default: ""
       tools:
         description: "Comma-separated cargo tools for taiki-e/install-action (prebuilt binaries, kept in CARGO_HOME), e.g. cargo-nextest,cargo-deny"
         type: string
@@ -230,6 +234,11 @@ jobs:
         uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: ${{ inputs.tools }}
+      - name: Bun version
+        if: steps.run.outputs.code == 'true' && inputs.bun-version-file != ''
+        uses: $/.github/actions/bun-pin
+        with:
+          version-file: ${{ inputs.bun-version-file }}
       - name: Restore target
         id: cache
         if: steps.run.outputs.code == 'true' && inputs.cache-target

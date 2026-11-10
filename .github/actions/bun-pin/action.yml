@@ -1,0 +1,52 @@
+name: Bun pin
+description: >-
+  Puts the Bun version a project pins on PATH on the self-hosted Linux runners, which have a Bun
+  installed: the exact release is downloaded once (checksum-verified) into the shared Bun directory
+  when it differs from the runner's. The pin is package.json's `packageManager` (bun@x.y.z) or
+  `engines.bun`, or a plain version file (.bun-version). Elsewhere it does nothing (GitHub-hosted
+  runners use oven-sh/setup-bun). See docs/ci-standard.md.
+inputs:
+  version-file:
+    description: "File holding the pin, relative to the workspace"
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        VERSION_FILE: ${{ inputs.version-file }}
+      run: |
+        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ "$RUNNER_OS" != Linux ]; then exit 0; fi
+        case "$VERSION_FILE" in
+          *.json) want="$(jq -r '(.packageManager // "" | capture("^bun@(?<v>[0-9]+[.][0-9]+[.][0-9]+)").v) // .engines.bun // empty' "$VERSION_FILE" 2> /dev/null || true)" ;;
+          *) want="$(tr -d ' v\r\n' < "$VERSION_FILE" 2> /dev/null || true)" ;;
+        esac
+        have="$(bun --version 2> /dev/null || true)"
+        if ! [[ "$want" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$want" = "$have" ]; then
+          echo "Bun ${have:-missing}${want:+ (pin: $want)}"
+          exit 0
+        fi
+        case "$(uname -m)" in x86_64) arch=x64 ;; aarch64 | arm64) arch=aarch64 ;; *) arch="$(uname -m)" ;; esac
+        root="${BUN_INSTALL:-$HOME/.bun}/versions"
+        dir="$root/$want"
+        mkdir -p "$root"
+        if [ ! -x "$dir/bin/bun" ]; then
+          (
+            flock 9
+            [ -x "$dir/bin/bun" ] && exit 0
+            tmp="$(mktemp -d)"
+            trap 'rm -rf "$tmp"' EXIT
+            base="https://github.com/oven-sh/bun/releases/download/bun-v$want"
+            curl -fsSL --retry 3 -o "$tmp/bun-linux-$arch.zip" "$base/bun-linux-$arch.zip"
+            curl -fsSL --retry 3 -o "$tmp/SHASUMS256.txt" "$base/SHASUMS256.txt"
+            (cd "$tmp" && grep " bun-linux-$arch.zip\$" SHASUMS256.txt | sha256sum -c -)
+            unzip -q "$tmp/bun-linux-$arch.zip" -d "$tmp"
+            mkdir -p "$dir.new/bin"
+            mv "$tmp/bun-linux-$arch/bun" "$dir.new/bin/bun"
+            ln -sf bun "$dir.new/bin/bunx"
+            rm -rf "$dir" && mv "$dir.new" "$dir"
+          ) 9> "$root/.lock"
+        fi
+        echo "$dir/bin" >> "$GITHUB_PATH"
+        echo "Bun $want (pinned; the runner has ${have:-none})"
