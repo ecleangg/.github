@@ -133,7 +133,8 @@ jobs:
           # On the self-hosted runners GOTOOLCHAIN=auto only upgrades; pin go.mod's exact toolchain
           # (fetched once into the shared module cache) when it names one.
           if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
-            pin="$(go mod edit -json | jq -r 'if .Toolchain then .Toolchain.Name elif (.Go | test("^[0-9]+[.][0-9]+[.][0-9]+$")) then "go" + .Go else empty end')"
+            # `go mod edit -json` gives Toolchain as a string ("go1.25.4") on current Go, as an object before.
+            pin="$(go mod edit -json | jq -r 'if (.Toolchain | type) == "object" then .Toolchain.Name elif (.Toolchain | type) == "string" then .Toolchain elif (.Go // "" | test("^[0-9]+[.][0-9]+[.][0-9]+$")) then "go" + .Go else empty end')"
             if [ -n "$pin" ]; then export GOTOOLCHAIN="$pin"; echo "GOTOOLCHAIN=$pin" >> "$GITHUB_ENV"; fi
           fi
           go version
