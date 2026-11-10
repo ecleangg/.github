@@ -46,7 +46,12 @@ runs:
           echo "hit=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        tree="$(git rev-parse "HEAD:${TREE_PATH#./}" 2> /dev/null || git rev-parse 'HEAD^{tree}')"
+        # `HEAD:<dir>` is that directory's tree; `HEAD:` (no path) is the root's. A failed lookup
+        # prints nothing (-q --verify), so the key never carries the argument.
+        dir="${TREE_PATH#./}"
+        dir="${dir%/}"
+        [ "$dir" != . ] || dir=""
+        tree="$(git rev-parse -q --verify "HEAD:$dir")" || tree="$(git rev-parse 'HEAD^{tree}')"
         variant="$(printf '%s' "$VARIANT" | sha256sum | cut -c1-16)"
         export INPUT_KEY="result-$KIND-$RUNNER_OS-$variant-$tree"
         export INPUT_WORKING_DIRECTORY="$RUNNER_TEMP/test-results-$KIND"
