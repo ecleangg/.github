@@ -151,8 +151,10 @@ jobs:
             echo "Packages: ${packages:-none}" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
+      # The audit runs on every event, also when the checks are skipped (no code change, or the tree
+      # already passed), and its tool may be one of these.
       - name: Install Go tools
-        if: steps.run.outputs.code == 'true' && inputs.tools != ''
+        if: (steps.run.outputs.code == 'true' || inputs.audit != '') && inputs.tools != ''
         env:
           TOOLS: ${{ inputs.tools }}
         run: |

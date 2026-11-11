@@ -229,8 +229,10 @@ jobs:
           rustc --version
           cargo --version
           if command -v sccache > /dev/null && [ -n "${RUSTC_WRAPPER:-}" ]; then sccache --zero-stats > /dev/null || true; fi
+      # The audit runs on every event, also when the checks are skipped (no code change, or the tree
+      # already passed), and its tool may be one of these: they don't persist between jobs.
       - name: Install cargo tools
-        if: steps.run.outputs.code == 'true' && inputs.tools != ''
+        if: (steps.run.outputs.code == 'true' || inputs.audit != '') && inputs.tools != ''
         uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: ${{ inputs.tools }}
