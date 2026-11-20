@@ -608,6 +608,8 @@ jobs:
 
       - name: Upload the SARIF and JSON reports
         if: ${{ !cancelled() }}
+        # Artifact storage can be full; the scan step still fails on findings, only this upload may not.
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: opengrep-${{ github.job }}-${{ inputs.concurrency-key || 'default' }}
