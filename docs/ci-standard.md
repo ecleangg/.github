@@ -159,6 +159,7 @@ is posted by [`pr-comments`](#pr-comments).
 | `working-directory` | `.` | Bun project directory |
 | `bun-version-file` | `package.json` | File setup-bun reads the version from (GitHub-hosted runners only) |
 | `registries` | empty | setup-bun `registries`, e.g. `@ecleangg:https://npm.pkg.github.com/\|$NODE_AUTH_TOKEN` (the workflow token) |
+| `forgejo-npm` | `false` | Read `@ecleangg` packages from our Forgejo registry: `NODE_AUTH_TOKEN` becomes the read-only token in OpenBao (`kv/ci/npm-read/forgejo-registry`, through the `ci-npm-read` role), so pull requests can install them too. Set `registries` to `@ecleangg:https://git.eclean.gg/api/packages/ecleangg/npm/\|$NODE_AUTH_TOKEN`. The caller's job needs `id-token: write` (every `bun-ci` job asks for it) |
 | `install` | `bun install --frozen-lockfile` | Install command |
 | `env` | empty | `NAME=value` lines exported to every step (no secrets) |
 | `filters` | `code: * !*.md !docs/* !LICENSE* ...` | `actions/changed-files` filters; steps run only when `code` matches |
@@ -425,8 +426,10 @@ jobs:
 
 #### trivy-image-scheduled
 
-`trivy-image-scheduled.yml`: pulls a published ghcr image and reports the full backlog; never fails.
-Permissions: `contents: read`, `packages: read`.
+`trivy-image-scheduled.yml`: pulls a published image and reports the full backlog; never fails. An image on
+`ghcr.io` is pulled with the workflow token; any other (our Forgejo registry, `git.eclean.gg`) with the login
+in OpenBao at `kv/ci/<repo>/forgejo-registry`, read through the repo's `ci-<repo>` role.
+Permissions: `contents: read`, `packages: read`, `id-token: write`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -442,9 +445,10 @@ jobs:
     permissions:
       contents: read
       packages: read
+      id-token: write # the OpenBao login for a Forgejo image
     uses: ecleangg/.github/.github/workflows/trivy-image-scheduled.yml@<sha> # <ref>
     with:
-      image: ghcr.io/ecleangg/api-rs:latest
+      image: git.eclean.gg/ecleangg/api-rs:latest
 ```
 
 #### pr-hygiene
