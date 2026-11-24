@@ -425,8 +425,10 @@ jobs:
 
 #### trivy-image-scheduled
 
-`trivy-image-scheduled.yml`: pulls a published ghcr image and reports the full backlog; never fails.
-Permissions: `contents: read`, `packages: read`.
+`trivy-image-scheduled.yml`: pulls a published image and reports the full backlog; never fails. An image on
+`ghcr.io` is pulled with the workflow token; any other (our Forgejo registry, `git.eclean.gg`) with the login
+in OpenBao at `kv/ci/<repo>/forgejo-registry`, read through the repo's `ci-<repo>` role.
+Permissions: `contents: read`, `packages: read`, `id-token: write`.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -442,9 +444,10 @@ jobs:
     permissions:
       contents: read
       packages: read
+      id-token: write # the OpenBao login for a Forgejo image
     uses: ecleangg/.github/.github/workflows/trivy-image-scheduled.yml@<sha> # <ref>
     with:
-      image: ghcr.io/ecleangg/api-rs:latest
+      image: git.eclean.gg/ecleangg/api-rs:latest
 ```
 
 #### pr-hygiene
