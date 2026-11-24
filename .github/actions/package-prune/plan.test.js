@@ -285,3 +285,14 @@ test("summary lists KEEP and DELETE with reasons and the restore hint", async ()
   assert.match(md, /gh api -X POST \/orgs\/ecleangg\/packages\/container\/x\/versions\/\d+\/restore/);
   assert.match(md, /30 days/);
 });
+
+test("scanNpmConsumers ignores a scanned repo's own tests/fixtures", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "prune-skip-"));
+  fs.mkdirSync(path.join(root, "tests", "fixtures", "x"), { recursive: true });
+  fs.writeFileSync(path.join(root, "tests", "fixtures", "x", "package.json"), JSON.stringify({ dependencies: { "@ecleangg/ui": "0.8.2" } }));
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ dependencies: { "@ecleangg/ui": "^0.11.0" } }));
+  const consumers = scanNpmConsumers([{ dir: root, label: "repo" }], "@ecleangg/ui");
+  assert.deepEqual(consumers.map((d) => d.source), ["repo:package.json"]);
+});
