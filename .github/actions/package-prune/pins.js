@@ -8,11 +8,15 @@ const path = require("node:path");
 const MAX_FILE = 1024 * 1024;
 const LOCKFILES = ["bun.lock", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"];
 const SKIP_DIRS = new Set([".git", "node_modules"]);
+// Test fixtures of a scanned repo are sample manifests, not consumers: a fixture lockfile must not
+// protect a version or add warnings (the shared workflows repo carries fixtures that mention packages).
+const SKIP_PATHS = new Set(["tests/fixtures"]);
 
 function* walk(dir, rel = "") {
   for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
     if (SKIP_DIRS.has(entry.name)) continue;
     const r = rel ? `${rel}/${entry.name}` : entry.name;
+    if (SKIP_PATHS.has(r)) continue;
     if (entry.isDirectory()) yield* walk(dir, r);
     else if (entry.isFile()) yield r;
   }
