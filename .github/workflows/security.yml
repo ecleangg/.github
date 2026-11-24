@@ -240,8 +240,8 @@ jobs:
       blocking: ${{ steps.scan.outputs.blocking }}
     env:
       TRUFFLEHOG_VERSION: 3.100.1
-      TRUFFLEHOG_SHA256_AMD64: bdbea0508e439b144f49de14e775908de5f902f3d14ea7ae8354bae72b0b72ef
-      TRUFFLEHOG_SHA256_ARM64: 3060f7c9f18c70afdc432984cacabdd1e9103729b5d5fee7fb6755a90d1c59d4
+      TRUFFLEHOG_SHA256_AMD64: b2460688116f29ce33f1afe16d14fef3fa3db928e74ba55a6c9fed392c60ad69
+      TRUFFLEHOG_SHA256_ARM64: 017b4f2124199c164579caff85c07839be1c79f6e5908b0f1dd3bccc775c6452
     steps:
       - name: Check out the full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -341,8 +341,8 @@ jobs:
       blocking: ${{ steps.gate.outputs.blocking }}
     env:
       OSV_VERSION: 2.7.1
-      OSV_SHA256_AMD64: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
-      OSV_SHA256_ARM64: 4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7
+      OSV_SHA256_AMD64: fb7dab19a8bd9bbe5c3189f09d4b7ee1820c9553a23bac202648a56efd2f6ee8
+      OSV_SHA256_ARM64: 983d22fbad9724514e3fcc6acc83b5fa64c5ffa6b0d9f510028f22c1b223ff81
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
