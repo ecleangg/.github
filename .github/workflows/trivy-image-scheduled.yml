@@ -51,8 +51,9 @@ jobs:
           role: ci-${{ github.event.repository.name }}
           jwtGithubAudience: https://secret.eclean.gg
           exportEnv: false
+          # vault-action splits secrets on semicolons, not on lines.
           secrets: |
-            kv/data/ci/${{ github.event.repository.name }}/forgejo-registry username | REGISTRY_USERNAME
+            kv/data/ci/${{ github.event.repository.name }}/forgejo-registry username | REGISTRY_USERNAME ;
             kv/data/ci/${{ github.event.repository.name }}/forgejo-registry token | REGISTRY_TOKEN
 
       - name: Scan the image
