@@ -24,6 +24,12 @@
       "matchHost": "npm.pkg.github.com",
       "hostType": "npm",
       "token": "{{ secrets.GITHUB_PACKAGES_TOKEN }}"
+    },
+    {
+      "description": "@ecleangg/ui is published to the Forgejo registry, which rejects anonymous reads; the token is a read:package token stored as a Mend org secret",
+      "matchHost": "https://git.eclean.gg/api/packages/ecleangg/npm/",
+      "hostType": "npm",
+      "token": "{{ secrets.FORGEJO_PACKAGES_TOKEN }}"
     }
   ],
   "minimumReleaseAge": "3 days",
