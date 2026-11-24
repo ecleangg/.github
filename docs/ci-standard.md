@@ -159,6 +159,7 @@ is posted by [`pr-comments`](#pr-comments).
 | `working-directory` | `.` | Bun project directory |
 | `bun-version-file` | `package.json` | File setup-bun reads the version from (GitHub-hosted runners only) |
 | `registries` | empty | setup-bun `registries`, e.g. `@ecleangg:https://npm.pkg.github.com/\|$NODE_AUTH_TOKEN` (the workflow token) |
+| `forgejo-npm` | `false` | Read `@ecleangg` packages from our Forgejo registry: `NODE_AUTH_TOKEN` becomes the read-only token in OpenBao (`kv/ci/npm-read/forgejo-registry`, through the `ci-npm-read` role), so pull requests can install them too. Set `registries` to `@ecleangg:https://git.eclean.gg/api/packages/ecleangg/npm/\|$NODE_AUTH_TOKEN`. The caller's job needs `id-token: write` (every `bun-ci` job asks for it) |
 | `install` | `bun install --frozen-lockfile` | Install command |
 | `env` | empty | `NAME=value` lines exported to every step (no secrets) |
 | `filters` | `code: * !*.md !docs/* !LICENSE* ...` | `actions/changed-files` filters; steps run only when `code` matches |
