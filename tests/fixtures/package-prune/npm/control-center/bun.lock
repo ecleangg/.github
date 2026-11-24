@@ -1,0 +1,7 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": { "": { "dependencies": { "@ecleangg/ui": "^0.10.0", }, }, },
+  "packages": {
+    "@ecleangg/ui": ["@ecleangg/ui@0.10.0", "https://npm.pkg.github.com/download/@ecleangg/ui/0.10.0/979431", {}, "sha512-x"],
+  }
+}

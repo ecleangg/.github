@@ -1,0 +1,3 @@
+[Container]
+# ghcr.io/ecleangg/api, replaced by the Rust service
+Image=ghcr.io/ecleangg/api-rs:sha-ea6f4909c3319b43ba2d62442ea5637d5e23a991@sha256:b3f146564aa2aa24c84ae2b69e7249274be7e7a23b8f4081309c6934c7160691

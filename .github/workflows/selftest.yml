@@ -39,6 +39,17 @@ jobs:
           persist-credentials: false
       - run: node --test .github/actions/coverage-summary/parsers.test.js
 
+  package-prune:
+    name: Package prune unit tests
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: node --test .github/actions/package-prune/plan.test.js
+
   helpers:
     name: changed-files, ci-scope and local-cache helpers
     if: ${{ !github.event.pull_request.draft }}
@@ -447,7 +458,7 @@ jobs:
 
   selftest:
     name: Self-test
-    needs: [parsers, helpers, local-cache, gate, assert-gate, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
+    needs: [parsers, package-prune, helpers, local-cache, gate, assert-gate, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
     # Drafts run only security-self's day-one checks.
     if: ${{ always() && !github.event.pull_request.draft }}
     runs-on: ubuntu-slim

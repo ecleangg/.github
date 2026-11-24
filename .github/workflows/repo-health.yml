@@ -5,13 +5,15 @@
 #   - stale:    long-inactive issues and pull requests (drafts included): warning comment, then close
 #   - runs:     logs and artifacts of workflow runs older than `max-age-days` (run metadata stays)
 #   - caches:   GitHub Actions caches not accessed for `cache-max-age-days`
-#   - packages: old versions of the container and npm packages linked to this repository
+#   - packages: removed; `package-prune.yml` prunes packages (pin-aware, daily). The `packages`,
+#               `package-names` and `keep-versions` inputs stay so callers that still pass them keep working;
+#               they do nothing.
 # The caller grants the union of the job permissions: contents: read, issues: write,
-# pull-requests: write, actions: write, packages: write, id-token: write (see docs/ci-standard.md).
+# pull-requests: write, actions: write, id-token: write (see docs/ci-standard.md).
 # No issue is opened. `stale` writes as eclean-ci[bot] (OpenBao role ci-<repository>, via id-token);
 # without that role it falls back to the workflow token and says so in the job summary. The other
-# jobs delete logs, artifacts, caches and packages with the workflow token.
-# `dry-run` makes runs, caches and packages only list what they would delete.
+# jobs delete logs, artifacts and caches with the workflow token.
+# `dry-run` makes runs and caches only list what they would delete.
 name: Repo health
 
 on:
@@ -22,7 +24,7 @@ on:
         type: string
         default: '["self-hosted","Linux","X64"]'
       dry-run:
-        description: "Only list what runs, caches and packages would delete"
+        description: "Only list what runs and caches would delete"
         type: boolean
         default: false
       files:
@@ -70,15 +72,15 @@ on:
         type: number
         default: 3
       packages:
-        description: "Delete old versions of the container and npm packages linked to this repository"
+        description: "Deprecated, ignored: packages are pruned by package-prune.yml"
         type: boolean
-        default: true
+        default: false
       package-names:
-        description: "Newline-separated `container:name` / `npm:name` packages to prune; default the image named after the repository and the @<org> npm package in package.json"
+        description: "Deprecated, ignored"
         type: string
         default: ""
       keep-versions:
-        description: "Tagged container versions (all npm versions) to keep per package, newest first"
+        description: "Deprecated, ignored"
         type: number
         default: 2
 
@@ -323,118 +325,4 @@ jobs:
             await core.summary
               .addHeading('Actions caches', 3)
               .addRaw(`Not accessed for ${process.env.MAX_AGE_DAYS} days: ${dryRun ? 'would delete' : 'deleted'} ${deleted} caches (${mb} MiB), ${failed} failed.`, true)
-              .write();
-
-  packages:
-    name: Package versions
-    if: ${{ inputs.packages }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          KEEP: ${{ inputs.keep-versions }}
-          DRY_RUN: ${{ inputs.dry-run }}
-          PACKAGES: ${{ inputs.package-names }}
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const dryRun = process.env.DRY_RUN === 'true';
-            const keep = Math.max(1, Number(process.env.KEEP));
-            const hour = 60 * 60 * 1000;
-            const rows = [[
-              { data: 'Package', header: true }, { data: 'Type', header: true },
-              { data: 'Versions', header: true }, { data: 'Kept', header: true },
-              { data: dryRun ? 'Would delete' : 'Deleted', header: true }, { data: 'Failed', header: true },
-            ]];
-
-            // cosign signatures, attestations and SBOMs: `sha256-<digest>[.sig|.att|.sbom]`.
-            const isSignatureTag = (tag) => /^sha256-[0-9a-f]{64}(\.(sig|att|sbom))?$/.test(tag);
-            const tagsOf = (v) => v.metadata?.container?.tags ?? [];
-            const byNewest = (a, b) => new Date(b.created_at) - new Date(a.created_at);
-
-            // Versions to delete for a container package.
-            const containerVictims = (versions) => {
-              const tagged = versions.filter((v) => tagsOf(v).some((t) => !isSignatureTag(t)));
-              const kept = tagged.slice(0, keep);
-              if (kept.length === 0) return [];
-              // Children, signatures and attestations are pushed around the tagged manifest, shortly
-              // before (multi-arch children) and after (signatures) it; keep everything from an hour
-              // before the oldest kept version onwards.
-              const floor = new Date(kept[kept.length - 1].created_at).getTime() - hour;
-              return versions.filter((v) => new Date(v.created_at).getTime() < floor
-                && !kept.includes(v)
-                && !tagsOf(v).includes('latest'));
-            };
-
-            // The workflow token can't list the org's packages, so each one is addressed by name:
-            // `package-names` lines (`container:name`, `npm:name`), or by default the image named after the
-            // repository and the published @<org> npm package in package.json. Missing ones are skipped.
-            const candidates = [];
-            const explicit = (process.env.PACKAGES || '').trim();
-            if (explicit) {
-              for (const line of explicit.split('\n').map((l) => l.trim()).filter(Boolean)) {
-                const [type, ...rest] = line.split(':');
-                candidates.push({ type, name: rest.join(':') });
-              }
-            } else {
-              candidates.push({ type: 'container', name: repo });
-              try {
-                const { data } = await github.rest.repos.getContent({ owner, repo, path: 'package.json' });
-                const pkg = JSON.parse(Buffer.from(data.content, 'base64').toString());
-                if (typeof pkg.name === 'string' && pkg.name.startsWith(`@${owner}/`) && !pkg.private) {
-                  candidates.push({ type: 'npm', name: pkg.name.slice(owner.length + 2) });
-                }
-              } catch (e) {
-                if (e.status !== 404) throw e;
-              }
-            }
-            const packages = [];
-            for (const c of candidates) {
-              try {
-                await github.request('GET /orgs/{org}/packages/{package_type}/{package_name}', {
-                  org: owner, package_type: c.type, package_name: c.name,
-                });
-                packages.push(c);
-              } catch (e) {
-                if (e.status === 404 || e.status === 403) core.info(`No ${c.type} package ${c.name} for this repository.`);
-                else throw e;
-              }
-            }
-            if (packages.length === 0) core.info(`No container or npm packages for ${owner}/${repo}.`);
-
-            let rateLimited = false;
-            for (const { type, name } of packages) {
-              const versions = (await github.paginate('GET /orgs/{org}/packages/{package_type}/{package_name}/versions', {
-                org: owner, package_type: type, package_name: name, per_page: 100,
-              })).sort(byNewest);
-              const victims = type === 'npm' ? versions.slice(keep) : containerVictims(versions);
-              let deleted = 0, failed = 0;
-              for (const v of victims) {
-                const label = `${type} ${name} version ${v.id} (${tagsOf(v).join(', ') || v.name})`;
-                if (dryRun) { core.info(`Would delete ${label}`); deleted += 1; continue; }
-                if (rateLimited) break;
-                try {
-                  await github.request('DELETE /orgs/{org}/packages/{package_type}/{package_name}/versions/{package_version_id}', {
-                    org: owner, package_type: type, package_name: name, package_version_id: v.id,
-                  });
-                  deleted += 1;
-                } catch (error) {
-                  if (error.status === 403 || error.status === 429) rateLimited = true;
-                  failed += 1;
-                  core.warning(`${label}: ${error.message}`);
-                }
-              }
-              rows.push([name, type, String(versions.length), String(versions.length - victims.length), String(deleted), String(failed)]);
-            }
-
-            const summary = core.summary.addHeading('Package versions', 3);
-            if (rows.length > 1) summary.addTable(rows);
-            await summary
-              .addRaw(rows.length > 1
-                ? `Kept the newest ${keep} tagged versions of containers (with their children, signatures and attestations) and the newest ${keep} versions of npm packages.${rateLimited ? ' Stopped early: rate limited.' : ''}`
-                : 'No container or npm packages are linked to this repository.', true)
               .write();

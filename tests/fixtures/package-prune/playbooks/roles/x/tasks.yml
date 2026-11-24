@@ -1,0 +1,4 @@
+- name: tag-only reference
+  image: ghcr.io/ecleangg/discord-bot:sha-d0a4820
+- name: default tag
+  image: ghcr.io/ecleangg/tool

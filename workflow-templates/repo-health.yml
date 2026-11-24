@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  # Standard-files report, stale issues and PRs, old run logs/artifacts, old caches and package versions.
+  # Standard-files report, stale issues and PRs, old run logs/artifacts, old caches.
   # Each part can be turned off with an input; see docs/ci-standard.md.
   health:
     permissions:
@@ -17,6 +17,5 @@ jobs:
       issues: write
       pull-requests: write
       actions: write
-      packages: write
       id-token: write # eclean-ci app token for the stale job
     uses: ecleangg/.github/.github/workflows/repo-health.yml@edfe72b86093c9926beac7769e07fbcc83454ddf # main
