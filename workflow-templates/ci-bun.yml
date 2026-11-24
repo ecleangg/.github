@@ -21,7 +21,7 @@ jobs:
       contents: read
       packages: read
       actions: read
-    uses: ecleangg/.github/.github/workflows/bun-ci.yml@edfe72b86093c9926beac7769e07fbcc83454ddf # main
+    uses: ecleangg/.github/.github/workflows/bun-ci.yml@bf606a1efb77067403a073c6522ad192b3b5bd81 # main
     with:
       format: ci-scope --full "bun run format:check" -- bunx oxfmt --check
       lint: bunx oxlint
@@ -39,4 +39,4 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-    uses: ecleangg/.github-private/.github/workflows/release-please.yml@5b7482313680597bffa35801327998f2a08745b4 # main
+    uses: ecleangg/.github-private/.github/workflows/release-please.yml@1bf5b009c4a0fdb307e8405dc03bf60eb082a050 # main

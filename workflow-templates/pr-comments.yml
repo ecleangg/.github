@@ -15,4 +15,4 @@ jobs:
       actions: read
       id-token: write
       pull-requests: write # only for the fallback to the workflow token
-    uses: ecleangg/.github/.github/workflows/pr-comments.yml@edfe72b86093c9926beac7769e07fbcc83454ddf # main
+    uses: ecleangg/.github/.github/workflows/pr-comments.yml@bf606a1efb77067403a073c6522ad192b3b5bd81 # main
