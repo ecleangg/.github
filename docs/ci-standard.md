@@ -327,6 +327,7 @@ Permissions: `contents: read`.
 | `build-args` | empty | Newline-separated build arguments (no secrets) |
 | `filters` | `image: * !*.md ...` | The build runs only when `image` matches |
 | `packages-secret` | `false` | Pass the workflow token as the BuildKit secret `github_packages_token` |
+| `forgejo-npm` | `false` | Pass a read-only Forgejo token from OpenBao (`kv/ci/npm-read/forgejo-registry`, role `ci-npm-read`) as the BuildKit secret `forgejo_packages_token`, to install `@ecleangg` packages from git.eclean.gg. The caller's job needs `id-token: write` (the job asks for it, so every caller must grant it when it re-pins) |
 | `scan` | `true` | Scan the built image (HIGH and CRITICAL fail) |
 | `timeout-minutes` | `45` | Job limit |
 

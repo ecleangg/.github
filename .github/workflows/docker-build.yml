@@ -38,6 +38,10 @@ on:
         description: "Pass the workflow token as the BuildKit secret `github_packages_token` (reads @ecleangg packages; grant packages: read)"
         type: boolean
         default: false
+      forgejo-npm:
+        description: "Read @ecleangg packages from our Forgejo registry: log in to OpenBao (role ci-npm-read) and pass its read-only token as the BuildKit secret `forgejo_packages_token`. The caller's job needs `id-token: write`"
+        type: boolean
+        default: false
       filters:
         description: "actions/changed-files filters; the build runs only when `image` matches"
         type: string
@@ -62,6 +66,7 @@ jobs:
     permissions:
       contents: read
       packages: read # @ecleangg packages, with packages-secret.
+      id-token: write # The OpenBao login for `forgejo-npm`.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,6 +76,18 @@ jobs:
         uses: $/.github/actions/changed-files
         with:
           filters: ${{ inputs.filters }}
+      - name: Forgejo registry login
+        id: forgejo
+        if: inputs.forgejo-npm && fromJSON(steps.changes.outputs.matches).image
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+        with:
+          url: https://secret.eclean.gg
+          method: jwt
+          role: ci-npm-read
+          jwtGithubAudience: https://secret.eclean.gg
+          exportEnv: false
+          secrets: |
+            kv/data/ci/npm-read/forgejo-registry token | FORGEJO_NPM_TOKEN
       - name: Pick the layer cache
         id: cache
         if: fromJSON(steps.changes.outputs.matches).image
@@ -80,10 +97,12 @@ jobs:
           SELF_HOSTED: ${{ runner.environment == 'self-hosted' }}
           PACKAGES_SECRET: ${{ inputs.packages-secret }}
           TOKEN: ${{ github.token }}
+          FORGEJO_TOKEN: ${{ steps.forgejo.outputs.FORGEJO_NPM_TOKEN }}
         run: |
           {
             echo "secrets<<ECLEAN_EOF"
             if [ "$PACKAGES_SECRET" = true ]; then echo "github_packages_token=$TOKEN"; fi
+            if [ -n "$FORGEJO_TOKEN" ]; then echo "forgejo_packages_token=$FORGEJO_TOKEN"; fi
             echo "ECLEAN_EOF"
           } >> "$GITHUB_OUTPUT"
           # Self-hosted: the daemon's BuildKit keeps its cache itself, nothing to import or export.
