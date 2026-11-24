@@ -472,8 +472,9 @@ jobs:
 
 #### repo-health
 
-`repo-health.yml`: weekly housekeeping in five independent jobs, each turned off by a boolean input
-(all default on). It opens no issue. Call it from a weekly `schedule` and `workflow_dispatch`.
+`repo-health.yml`: weekly housekeeping in four independent jobs, each turned off by a boolean input
+(all default on). Packages are no longer pruned here: see [package-prune](#package-prune).
+It opens no issue. Call it from a weekly `schedule` and `workflow_dispatch`.
 
 | Job | Input | Does |
 | --- | --- | --- |
@@ -481,23 +482,21 @@ jobs:
 | `stale` | `stale` | `actions/stale`: warning comment, then closes; drafts included |
 | `runs` | `runs` | Deletes logs (run metadata stays) and artifacts of runs older than `max-age-days` |
 | `caches` | `caches` | Deletes Actions caches not accessed for `cache-max-age-days` |
-| `packages` | `packages` | Deletes old versions of the container and npm packages linked to the repository |
 
 Job permissions: `contents: read` everywhere, `issues: write`, `pull-requests: write` and `id-token: write`
-(`stale`), `actions: write` (`runs`, `caches`), `packages: write` (`packages`). The caller grants the union:
-`contents: read`, `issues: write`, `pull-requests: write`, `actions: write`, `packages: write`,
-`id-token: write`.
+(`stale`), `actions: write` (`runs`, `caches`). The caller grants the union: `contents: read`, `issues: write`,
+`pull-requests: write`, `actions: write`, `id-token: write`.
 
 `stale` acts as eclean-ci[bot]: it logs in to OpenBao with the job's OIDC token (role `ci-<repository
 name without a leading dot>`, bound to `refs/heads/main`, so call it from a schedule or dispatch on the
 default branch) and mints an app token. Without the role it falls back to the workflow token (the
-`issues` and `pull-requests` grants) and says so in the job summary. Logs, artifacts, caches and
-packages are deleted with the workflow token.
+`issues` and `pull-requests` grants) and says so in the job summary. Logs, artifacts and caches
+are deleted with the workflow token.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `dry-run` | `false` | `runs`, `caches`, `packages` and `stale` only list what they would delete or mark |
-| `files`, `stale`, `runs`, `caches`, `packages` | `true` | Turn a job off |
+| `dry-run` | `false` | `runs`, `caches` and `stale` only list what they would delete or mark |
+| `files`, `stale`, `runs`, `caches` | `true` | Turn a job off |
 | `days-before-stale` | `90` | Inactivity before the warning |
 | `days-before-close` | `14` | Days after the warning before it is closed |
 | `exempt-labels` | `pinned,security,keep` | Never marked stale |
@@ -505,14 +504,9 @@ packages are deleted with the workflow token.
 | `lookback-days` | `14` | Runs visited: created up to this many days before the cutoff (`0`: all). Keeps a weekly run from re-requesting logs already deleted |
 | `max-deletions` | `1000` | Cap on log and artifact deletions per run (API rate limits); the next run continues |
 | `cache-max-age-days` | `3` | Days without access after which a cache is deleted |
-| `keep-versions` | `2` | Tagged container versions (all npm versions) kept per package, newest first |
-| `package-names` | empty | `container:name` / `npm:name` lines; default the image named after the repo and the `@ecleangg` npm package in `package.json` (the workflow token cannot list org packages) |
+| `packages`, `package-names`, `keep-versions` | | Deprecated and ignored (the `packages` job is gone); callers that still pass them keep working |
 
-Packages: `GET /orgs/{org}/packages` for `container` and `npm`, filtered to this repository. npm keeps
-the newest `keep-versions` versions. A container keeps the newest `keep-versions` versions that carry a
-tag other than a cosign `sha256-<digest>.sig/.att/.sbom` tag, anything tagged `latest`, and every version
-created from one hour before the oldest kept version onwards (multi-arch children, signatures,
-attestations). The rest is deleted. Runs are limited by the API to 1000 results per query; the job
+Runs are limited by the API to 1000 results per query; the job
 continues below the oldest run it saw, up to five queries.
 
 ```yaml
@@ -527,9 +521,87 @@ jobs:
       issues: write
       pull-requests: write
       actions: write
-      packages: write
       id-token: write
     uses: ecleangg/.github/.github/workflows/repo-health.yml@<sha> # <ref>
+```
+
+#### package-prune
+
+`package-prune.yml`: keeps only the latest version of each container image and npm package of the org,
+plus everything still in use, and deletes the rest. One job; replaces the `packages` job of
+`repo-health.yml`, which ignored production pins and deleted versions part by part.
+
+- **KEEP** the newest build per image (newest `keep-latest` builds by creation time, and any build carrying
+  `latest`), and the newest npm version(s); every container build pinned by production, found as
+  `ghcr.io/<org>/<name>:<tag>@sha256:<digest>` (also tag-only and bare references) in
+  `<org>/containers` (`podman/stacks`) and `<org>/playbooks`; every npm version a consumer lockfile locks
+  (`bun.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), or the highest published version a
+  `package.json` range resolves to when no lockfile covers it, in every non-archived repository of the org;
+  anything younger than `min-age-hours`.
+- **DELETE** everything else, a container as a whole build: the tagged index, platform images, the buildx
+  attestation manifest, the cosign bundle and the referrers fallback-tag index `sha256-<digest>` go
+  together, found by walking the registry manifests (not by timestamps). A part reachable from a kept
+  build is never deleted. Unreachable untagged versions older than `min-age-hours` are orphans and go too.
+- **Fails closed.** Nothing is deleted, for any package of the run, when a pin source cannot be read or is
+  empty, a pinned digest or tag is not in the registry (the run names it), a registry call fails, the
+  image has no tagged build, or a package has no pin while `require-pins` is on. A build with any part
+  younger than `min-age-hours` waits. At most `max-deletions` versions per run; builds are never split,
+  the next run continues. Before and after deleting, the kept manifests are read from the registry.
+- **Report.** The job summary has a KEEP / DELETE / DEFER table with a reason per version and the commands
+  to restore every deleted version (GitHub restores a deleted package version for 30 days).
+- **Dry run by default.**
+
+Identities: the pin sources are read as eclean-ci[bot] with `contents: read` on every repository the app
+is installed on (OpenBao role `ci-<repository>`, bound to `refs/heads/main`: call it from a schedule,
+`workflow_dispatch` or `workflow_run` on the default branch). Without the app token the run stops with an
+error. Versions are listed and deleted, and the registry is read, with the workflow token
+(`packages: write`, for packages linked to the repository).
+
+Permissions: `contents: read`, `packages: write`, `id-token: write`.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `packages` | required | `container:<name>` / `npm:<name>` lines (npm without the scope: `npm:ui` is `@ecleangg/ui`) |
+| `dry-run` | `true` | Only report |
+| `keep-latest` | `1` | Newest builds (npm: versions) kept per package |
+| `max-deletions` | `20` | Most versions deleted per run |
+| `min-age-hours` | `2` | Nothing younger is deleted (publishes in flight) |
+| `pin-repos` | empty | `owner/repo[:path]` lines scanned for container references; default `<org>/containers:podman/stacks` and `<org>/playbooks` |
+| `consumer-repos` | `*` | `owner/repo` lines whose manifests and lockfiles pin npm versions; `*`: every non-archived repository of the org |
+| `require-pins` | `true` | Abort when a container package has no pin |
+
+Call it daily and after each publish. A publishing repository adds `.github/workflows/package-prune.yml`
+(the workflow name below is the `name:` of its publish workflow). Scheduled and `workflow_run` runs are
+dry runs until the repository variable `PACKAGE_PRUNE_LIVE` is `true`; `workflow_dispatch` takes `dry-run`.
+
+```yaml
+name: Package prune
+on:
+  schedule:
+    - cron: "23 3 * * *" # daily, off the hour
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        type: boolean
+        default: true
+  workflow_run: # zizmor: ignore[dangerous-triggers] reads and prunes packages only; runs no pull request code
+    workflows: ["Build and publish Docker image"]
+    types: [completed]
+permissions: {}
+concurrency:
+  group: package-prune
+  cancel-in-progress: false
+jobs:
+  prune:
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ecleangg/.github/.github/workflows/package-prune.yml@<sha> # <ref>
+    with:
+      packages: container:booky
+      dry-run: ${{ !((github.event_name == 'workflow_dispatch' && inputs.dry-run != true) || (github.event_name != 'workflow_dispatch' && vars.PACKAGE_PRUNE_LIVE == 'true')) }}
 ```
 
 #### pr-comments
@@ -737,6 +809,13 @@ never posts the comment.
     format: lcov
     file: coverage/lcov.info
 ```
+
+#### actions/package-prune
+
+The script behind [`package-prune.yml`](#package-prune) (`prune.js`, with `plan.js`, `pins.js`, `semver.js`
+and unit tests in `plan.test.js` over `tests/fixtures/package-prune`). Needs Node 18 or later and git.
+Inputs: `packages`, `token`, `pin-token` (required), `dry-run`, `keep-latest`, `max-deletions`,
+`min-age-hours`, `pin-repos`, `consumer-repos`, `require-pins`, as in the workflow. Dry run by default.
 
 #### actions/sbom
 

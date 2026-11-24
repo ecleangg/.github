@@ -1,0 +1,63 @@
+name: Package prune
+description: >-
+  Deletes superseded versions of ghcr.io container images and npm packages of the org, keeping the
+  newest build (version) of each plus everything production pins or a consumer lockfile still uses.
+  Containers are deleted as whole builds (index, platform images, attestation, cosign bundle,
+  referrers fallback-tag index). Dry run by default. Any unreadable pin source, pinned digest missing
+  from the registry or registry error aborts before anything is deleted. Writes a KEEP/DELETE table
+  with reasons and a restore hint to the job summary. Needs Node 18 or later and git.
+inputs:
+  packages:
+    description: "Newline-separated `container:<name>` / `npm:<name>` packages (npm without the scope)"
+    required: true
+  token:
+    description: "Token that lists and deletes package versions and reads the registry (the workflow token with `packages: write` for packages linked to the repository)"
+    required: true
+  pin-token:
+    description: "Token with read access to the pin and consumer repositories (the eclean-ci app token, `contents: read`)"
+    required: true
+  dry-run:
+    description: "Only report"
+    required: false
+    default: "true"
+  keep-latest:
+    description: "Newest builds (npm: versions) to keep per package, besides everything pinned"
+    required: false
+    default: "1"
+  max-deletions:
+    description: "Most versions deleted per run; builds are never split, the next run continues"
+    required: false
+    default: "20"
+  min-age-hours:
+    description: "Versions and builds younger than this are never deleted (publishes in flight)"
+    required: false
+    default: "2"
+  pin-repos:
+    description: "Newline-separated `owner/repo[:path]` repositories scanned for `ghcr.io/<org>/<name>` references; empty: <org>/containers:podman/stacks and <org>/playbooks"
+    required: false
+    default: ""
+  consumer-repos:
+    description: "Newline-separated `owner/repo` repositories whose package.json and lockfiles pin npm versions; `*` (default): every non-archived repository of the org"
+    required: false
+    default: "*"
+  require-pins:
+    description: "Abort when a container package has no pin in the pin repositories"
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PIN_TOKEN: ${{ inputs.pin-token }}
+        PRUNE_ORG: ${{ github.repository_owner }}
+        PRUNE_PACKAGES: ${{ inputs.packages }}
+        PRUNE_DRY_RUN: ${{ inputs.dry-run }}
+        PRUNE_KEEP_LATEST: ${{ inputs.keep-latest }}
+        PRUNE_MAX_DELETIONS: ${{ inputs.max-deletions }}
+        PRUNE_MIN_AGE_HOURS: ${{ inputs.min-age-hours }}
+        PRUNE_PIN_REPOS: ${{ inputs.pin-repos }}
+        PRUNE_CONSUMER_REPOS: ${{ inputs.consumer-repos }}
+        PRUNE_REQUIRE_PINS: ${{ inputs.require-pins }}
+      run: node "${{ github.action_path }}/prune.js"

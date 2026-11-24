@@ -13,6 +13,10 @@ inputs:
     required: false
     default: |
       pull-requests: write
+  repositories:
+    description: "Repositories the token can reach: empty for the current one, `all` for every repository the app is installed on, or a comma-separated list of names"
+    required: false
+    default: ""
   openbao-role:
     description: "OpenBao JWT role; default ci-<repository name without a leading dot>"
     required: false
@@ -38,9 +42,15 @@ runs:
         ROLE: ${{ inputs.openbao-role }}
         SECRET: ${{ inputs.openbao-secret }}
         PERMISSIONS: ${{ inputs.permissions }}
+        REPOSITORIES: ${{ inputs.repositories }}
       run: |
         set -euo pipefail
         short="${REPO#.}"
+        case "$REPOSITORIES" in
+          "") echo "repositories=$REPO" >> "$GITHUB_OUTPUT" ;;
+          all) echo "repositories=" >> "$GITHUB_OUTPUT" ;; # no `repositories` input: every installed repository
+          *) echo "repositories=$REPOSITORIES" >> "$GITHUB_OUTPUT" ;;
+        esac
         echo "role=${ROLE:-ci-$short}" >> "$GITHUB_OUTPUT"
         echo "secret=${SECRET:-kv/data/ci/$short/github-app private-key} | APP_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
         # `pull-requests: write` -> permission-pull-requests=write, for actions/create-github-app-token.
@@ -67,7 +77,7 @@ runs:
         client-id: Iv23liwdhLJvAeshE7gu # eclean-ci
         private-key: ${{ steps.openbao.outputs.APP_PRIVATE_KEY }}
         owner: ${{ github.repository_owner }}
-        repositories: ${{ github.event.repository.name }}
+        repositories: ${{ steps.names.outputs.repositories }}
         permission-contents: ${{ steps.names.outputs.permission-contents }}
         permission-pull-requests: ${{ steps.names.outputs.permission-pull-requests }}
         permission-issues: ${{ steps.names.outputs.permission-issues }}

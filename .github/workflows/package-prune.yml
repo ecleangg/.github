@@ -1,0 +1,96 @@
+# Keeps only the latest version of each container image and npm package of the org, plus everything
+# still in use. Replaces the `packages` job of repo-health.yml, which ignored production pins.
+#   KEEP    the newest build per image (newest version per npm package)
+#           + every build pinned by production: `ghcr.io/<org>/<name>:<tag>@sha256:<digest>` in
+#             <org>/containers (podman/stacks) and <org>/playbooks
+#           + every npm version a consumer lockfile locks, or the highest version a package.json range
+#             resolves to when there is no lockfile (every non-archived repository of the org)
+#   DELETE  the rest, as whole builds: tagged index, platform images, attestation, cosign bundle and
+#           the referrers fallback-tag index go together; no part of a kept build is ever deleted
+# Fails closed: an unreadable pin source, a pinned digest already missing from the registry or a
+# registry error aborts the run before anything is deleted. Never deletes anything younger than
+# `min-age-hours`, at most `max-deletions` versions per run, and never the only tagged build.
+# Dry run by default. The job summary has the KEEP/DELETE table and the restore commands (GitHub
+# restores a deleted version for 30 days).
+# Call it from a daily `schedule`, `workflow_dispatch` and `workflow_run` of the publish workflow in
+# each repository that publishes a package (see docs/ci-standard.md). The caller grants `contents: read`,
+# `packages: write` and `id-token: write`. Pin sources are read as eclean-ci[bot] (`contents: read` on
+# the org's repositories, via the OpenBao role ci-<repository>); the run must be on the default branch.
+name: Package prune
+
+on:
+  workflow_call:
+    inputs:
+      packages:
+        description: "Newline-separated `container:<name>` / `npm:<name>` packages to prune (npm without the scope: `npm:ui` is @<org>/ui)"
+        type: string
+        required: true
+      dry-run:
+        description: "Only report what would be deleted"
+        type: boolean
+        default: true
+      keep-latest:
+        description: "Newest builds (npm: versions) kept per package, besides everything pinned"
+        type: number
+        default: 1
+      max-deletions:
+        description: "Most versions deleted per run; builds are never split, the next run continues"
+        type: number
+        default: 20
+      min-age-hours:
+        description: "Versions and builds younger than this are never deleted (publishes in flight)"
+        type: number
+        default: 2
+      pin-repos:
+        description: "Newline-separated `owner/repo[:path]` scanned for container references; default <org>/containers:podman/stacks and <org>/playbooks"
+        type: string
+        default: ""
+      consumer-repos:
+        description: "Newline-separated `owner/repo` whose package.json and lockfiles pin npm versions; `*`: every non-archived repository of the org"
+        type: string
+        default: "*"
+      require-pins:
+        description: "Abort when a container package has no pin in the pin repositories"
+        type: boolean
+        default: true
+      runs-on:
+        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        type: string
+        default: '["self-hosted","Linux","X64"]'
+
+permissions: {}
+
+jobs:
+  prune:
+    name: Prune packages
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # list and delete versions of packages linked to this repository; registry reads
+      id-token: write # OpenBao login for the app token
+    steps:
+      - name: eclean CI app token
+        id: token
+        uses: $/.github/actions/app-token
+        with:
+          repositories: all
+          permissions: |
+            contents: read
+      - name: Stop without the app token
+        if: ${{ steps.token.outputs.app != 'true' }}
+        run: |
+          echo "::error title=Package prune aborted::No eclean CI app token (OpenBao role ci-${GITHUB_REPOSITORY#*/} or the app's contents permission is missing, or this is not a run from the default branch): the pin sources cannot be read, so nothing is pruned."
+          exit 1
+      - uses: $/.github/actions/package-prune
+        with:
+          packages: ${{ inputs.packages }}
+          token: ${{ github.token }}
+          pin-token: ${{ steps.token.outputs.token }}
+          dry-run: ${{ inputs.dry-run }}
+          keep-latest: ${{ inputs.keep-latest }}
+          max-deletions: ${{ inputs.max-deletions }}
+          min-age-hours: ${{ inputs.min-age-hours }}
+          pin-repos: ${{ inputs.pin-repos }}
+          consumer-repos: ${{ inputs.consumer-repos }}
+          require-pins: ${{ inputs.require-pins }}
