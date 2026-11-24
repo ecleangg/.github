@@ -502,9 +502,9 @@ jobs:
     outputs:
       blocking: ${{ steps.gate.outputs.blocking }}
     env:
-      OPENGREP_VERSION: 1.33.1
-      OPENGREP_SHA256_AMD64: 46e8133cc490f9f50518061590ce2f6be5a08afaeda034471c0ceda4b3899808
-      OPENGREP_SHA256_ARM64: d1433f63a90b8bc0b6ad4b498a13b372b856ce9a754a43484ba4920fe2d76dcf
+      OPENGREP_VERSION: 2.0.0
+      OPENGREP_SHA256_AMD64: 37e93f4da5fd04a18c5c1febbdd12f7e98dfccd4d0c9cf2593bcb25eeb462da0
+      OPENGREP_SHA256_ARM64: 6257b65423a744b704af2ff9beeb8f222c2f6925236af386b56b031d4c06d6d8
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -527,11 +527,11 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
           # The runner's arch (see runs-on above) can be ARM. Opengrep genuinely publishes
-          # a linux-arm64 release asset (opengrep_manylinux_aarch64), unlike some of the
+          # a linux-arm64 release asset (opengrep_linux_aarch64), unlike some of the
           # other scanners here, so this branches the same way rather than failing.
           case "$RUNNER_ARCH" in
-            X64) ogrep_asset=opengrep_manylinux_x86; sha256="$OPENGREP_SHA256_AMD64" ;;
-            ARM64) ogrep_asset=opengrep_manylinux_aarch64; sha256="$OPENGREP_SHA256_ARM64" ;;
+            X64) ogrep_asset=opengrep_linux_x86; sha256="$OPENGREP_SHA256_AMD64" ;;
+            ARM64) ogrep_asset=opengrep_linux_aarch64; sha256="$OPENGREP_SHA256_ARM64" ;;
             *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
           esac
           # Verified downloads are kept in the runner's tool cache (on the self-hosted runners a
