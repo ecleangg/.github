@@ -450,6 +450,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      id-token: write # The called workflow's OpenBao login for a Forgejo image.
     uses: ./.github/workflows/trivy-image-scheduled.yml
     with:
       # A public ghcr image of ours would be better, but none is guaranteed to exist; this is small.
