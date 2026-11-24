@@ -453,7 +453,7 @@ jobs:
     uses: ./.github/workflows/trivy-image-scheduled.yml
     with:
       # A public ghcr image of ours would be better, but none is guaranteed to exist; this is small.
-      image: ghcr.io/trufflesecurity/trufflehog:3.99.7
+      image: ghcr.io/trufflesecurity/trufflehog:3.100.1
       runs-on: ubuntu-slim
 
   selftest:

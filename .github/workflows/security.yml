@@ -167,7 +167,7 @@ jobs:
         uses: zizmorcore/zizmor-action@1b4550e929643b8b26a62303c6bd64814271a4f1 # v0.9.2
         with:
           inputs: ${{ inputs.path }}/.github
-          version: 1.31.1
+          version: 1.33.1
           online-audits: "false"
           advanced-security: "false"
           annotations: "true"
@@ -239,7 +239,7 @@ jobs:
     outputs:
       blocking: ${{ steps.scan.outputs.blocking }}
     env:
-      TRUFFLEHOG_VERSION: 3.99.7
+      TRUFFLEHOG_VERSION: 3.100.1
       TRUFFLEHOG_SHA256_AMD64: bdbea0508e439b144f49de14e775908de5f902f3d14ea7ae8354bae72b0b72ef
       TRUFFLEHOG_SHA256_ARM64: 3060f7c9f18c70afdc432984cacabdd1e9103729b5d5fee7fb6755a90d1c59d4
     steps:
@@ -340,7 +340,7 @@ jobs:
     outputs:
       blocking: ${{ steps.gate.outputs.blocking }}
     env:
-      OSV_VERSION: 2.7.0
+      OSV_VERSION: 2.7.1
       OSV_SHA256_AMD64: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
       OSV_SHA256_ARM64: 4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7
     steps:
@@ -740,7 +740,7 @@ jobs:
         env:
           TRIVY_MISCONFIG_SCANNERS: dockerfile
         with:
-          version: v0.76.1
+          version: v0.76.2
           scan-type: config
           scan-ref: ${{ github.workspace }}/${{ inputs.path }}
           severity: HIGH,CRITICAL
@@ -757,7 +757,7 @@ jobs:
         env:
           TRIVY_MISCONFIG_SCANNERS: dockerfile
         with:
-          version: v0.76.1
+          version: v0.76.2
           scan-type: config
           scan-ref: ${{ runner.temp }}/base/${{ inputs.path }}
           severity: HIGH,CRITICAL
