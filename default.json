@@ -32,6 +32,9 @@
       "token": "{{ secrets.FORGEJO_PACKAGES_TOKEN }}"
     }
   ],
+  "customEnvVariables": {
+    "NODE_AUTH_TOKEN": "{{ secrets.FORGEJO_PACKAGES_TOKEN }}"
+  },
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
   "prConcurrentLimit": 5,
