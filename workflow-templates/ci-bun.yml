@@ -39,4 +39,4 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-    uses: ecleangg/.github-private/.github/workflows/release-please.yml@1bf5b009c4a0fdb307e8405dc03bf60eb082a050 # main
+    uses: ecleangg/.github-private/.github/workflows/release-please.yml@47b498015e93af09a2a57636d1ad891c9e9b5c24 # main
