@@ -61,6 +61,70 @@ jobs:
           persist-credentials: false
       - run: bash tests/changed-files/run.sh
 
+  host-slot:
+    name: host-slot action (${{ matrix.os }})
+    if: ${{ !github.event.pull_request.draft }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-slim, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Take the only slot
+        id: first
+        uses: ./.github/actions/host-slot
+        with:
+          class: selftest
+          slots-linux: "1"
+          slots-windows: "1"
+          wait-minutes: "0"
+          directory: ${{ runner.temp }}/slots
+      - name: A second job finds it taken
+        id: second
+        uses: ./.github/actions/host-slot
+        with:
+          class: selftest
+          slots-linux: "1"
+          slots-windows: "1"
+          wait-minutes: "0"
+          directory: ${{ runner.temp }}/slots
+      - name: Release the slot
+        uses: ./.github/actions/host-slot/release
+        with:
+          class: selftest
+      - name: A third job gets it after the release
+        id: third
+        uses: ./.github/actions/host-slot
+        with:
+          class: selftest
+          slots-linux: "1"
+          slots-windows: "1"
+          wait-minutes: "1"
+          on-timeout: fail
+          directory: ${{ runner.temp }}/slots
+      - name: A class with no slots is not limited
+        id: off
+        uses: ./.github/actions/host-slot
+        with:
+          class: selftest-off
+          slots-linux: "0"
+          slots-windows: "0"
+          directory: ${{ runner.temp }}/slots
+      - name: Check the outcomes
+        shell: bash
+        env:
+          FIRST: ${{ steps.first.outputs.acquired }}/${{ steps.first.outputs.slot }}
+          SECOND: ${{ steps.second.outputs.acquired }}
+          THIRD: ${{ steps.third.outputs.acquired }}/${{ steps.third.outputs.slot }}
+          OFF: ${{ steps.off.outputs.acquired }}
+        run: |
+          echo "first=$FIRST second=$SECOND third=$THIRD off=$OFF"
+          [ "$FIRST" = true/1 ] && [ "$SECOND" = false ] && [ "$THIRD" = true/1 ] && [ "$OFF" = false ]
+
   local-cache:
     name: local-cache actions (local and remote backends)
     if: ${{ !github.event.pull_request.draft }}
@@ -135,8 +199,9 @@ jobs:
           echo "run-full=$RUN_FULL full=$FULL ($REASON) matches=$MATCHES"
           [ "$RUN_FULL" = true ]
           jq -e 'has("code")' <<< "$MATCHES"
-          # Only pull requests can be scoped to their changed files.
-          if [ "$EVENT" != pull_request ]; then [ "$FULL" = true ]; fi
+          # Only pull requests and pushes (push-diff, on by default) are scoped to their changed
+          # files; any other event checks everything.
+          case "$EVENT" in pull_request | push) ;; *) [ "$FULL" = true ] ;; esac
 
   security-self:
     name: Security on this repo
@@ -459,7 +524,7 @@ jobs:
 
   selftest:
     name: Self-test
-    needs: [parsers, package-prune, helpers, local-cache, gate, assert-gate, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
+    needs: [parsers, package-prune, helpers, host-slot, local-cache, gate, assert-gate, security-self, security-clean, security-planted, assert-planted, coverage, sbom, image-scan, image-scheduled]
     # Drafts run only security-self's day-one checks.
     if: ${{ always() && !github.event.pull_request.draft }}
     runs-on: ubuntu-slim

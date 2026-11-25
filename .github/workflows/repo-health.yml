@@ -3,7 +3,8 @@
 #   - files:    standard files missing from the repo and not provided by the org's `.github` repo,
 #               as a job-summary table (never fails)
 #   - stale:    long-inactive issues and pull requests (drafts included): warning comment, then close
-#   - runs:     logs and artifacts of workflow runs older than `max-age-days` (run metadata stays)
+#   - runs:     logs of workflow runs older than `max-age-days` (run metadata stays) and their artifacts:
+#               `artifact-max-age-days` (3) for non-release runs, `max-age-days` for release runs
 #   - caches:   GitHub Actions caches not accessed for `cache-max-age-days`
 #   - packages: removed; `package-prune.yml` prunes packages (pin-aware, daily). The `packages`,
 #               `package-names` and `keep-versions` inputs stay so callers that still pass them keep working;
@@ -55,6 +56,14 @@ on:
         description: "Age in days after which run logs and artifacts are deleted"
         type: number
         default: 7
+      artifact-max-age-days:
+        description: "Age in days after which artifacts of non-release runs are deleted (the storage quota counts live artifacts by the hour); release runs keep theirs for max-age-days"
+        type: number
+        default: 3
+      release-ref-pattern:
+        description: "Extended regex on a run's branch or tag name: matching runs are release runs, whose artifacts are kept for max-age-days"
+        type: string
+        default: '^([A-Za-z0-9_.-]+[-/])?v?[0-9]+\.[0-9]+(\.[0-9]+)?([-+.].*)?$'
       lookback-days:
         description: "Only runs created within this many days before the cutoff are visited (earlier ones were cleaned by earlier runs); 0: all"
         type: number
@@ -198,6 +207,8 @@ jobs:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           MAX_AGE_DAYS: ${{ inputs.max-age-days }}
+          ARTIFACT_MAX_AGE_DAYS: ${{ inputs.artifact-max-age-days }}
+          RELEASE_REF_PATTERN: ${{ inputs.release-ref-pattern }}
           LOOKBACK_DAYS: ${{ inputs.lookback-days }}
           MAX_DELETIONS: ${{ inputs.max-deletions }}
           DRY_RUN: ${{ inputs.dry-run }}
@@ -211,6 +222,8 @@ jobs:
             const floor = Number(process.env.LOOKBACK_DAYS) > 0
               ? new Date(cutoff.getTime() - Number(process.env.LOOKBACK_DAYS) * day)
               : null;
+            const artifactCutoff = new Date(Date.now() - Number(process.env.ARTIFACT_MAX_AGE_DAYS) * day);
+            const releaseRef = new RegExp(process.env.RELEASE_REF_PATTERN);
             const iso = (d) => d.toISOString().replace(/\.\d+Z$/, 'Z');
             const counts = { logs: 0, logsGone: 0, artifacts: 0, skipped: 0, failed: 0 };
             let budget = maxDeletions;
@@ -238,7 +251,22 @@ jobs:
               }
             };
 
-            // 1. Logs of completed runs. The created filter returns at most 1000 runs per query, so
+            // 1. Artifacts first, as they are what the storage quota counts: those of non-release runs
+            //    go after artifact-max-age-days, those of release runs (a version-like tag or branch)
+            //    after max-age-days.
+            for await (const page of github.paginate.iterator(github.rest.actions.listArtifactsForRepo, { owner, repo, per_page: 100 })) {
+              if (budget <= 0 || rateLimited) break;
+              for (const artifact of page.data) {
+                if (artifact.expired) continue;
+                const release = releaseRef.test(artifact.workflow_run?.head_branch ?? '');
+                if (new Date(artifact.created_at) >= (release ? cutoff : artifactCutoff)) continue;
+                if (await remove(`artifact ${artifact.id} (${artifact.name})`, () => github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id }))) {
+                  counts.artifacts += 1;
+                }
+              }
+            }
+
+            // 2. Logs of completed runs. The created filter returns at most 1000 runs per query, so
             //    when a query fills up the next one continues below its oldest run.
             let upper = `<${iso(cutoff)}`;
             if (floor) upper = `${iso(floor)}..${iso(cutoff)}`;
@@ -259,22 +287,11 @@ jobs:
               upper = floor ? `${iso(floor)}..${iso(new Date(oldest.getTime() - 1000))}` : `<${iso(oldest)}`;
             }
 
-            // 2. Artifacts created before the cutoff.
-            for await (const page of github.paginate.iterator(github.rest.actions.listArtifactsForRepo, { owner, repo, per_page: 100 })) {
-              if (budget <= 0 || rateLimited) break;
-              for (const artifact of page.data) {
-                if (artifact.expired || new Date(artifact.created_at) >= cutoff) continue;
-                if (await remove(`artifact ${artifact.id} (${artifact.name})`, () => github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id }))) {
-                  counts.artifacts += 1;
-                }
-              }
-            }
-
             const verb = dryRun ? 'would delete' : 'deleted';
             const capped = budget <= 0 ? ` The cap of ${maxDeletions} deletions was reached; the next run continues.` : '';
             await core.summary
               .addHeading('Run logs and artifacts', 3)
-              .addRaw(`Older than ${process.env.MAX_AGE_DAYS} days (created before ${iso(cutoff)}): ${verb} logs of ${counts.logs} runs and ${counts.artifacts} artifacts. ${counts.logsGone} runs had no logs left, ${counts.skipped} were still running, ${counts.failed} failed.${rateLimited ? ' Stopped early: rate limited.' : ''}${capped}`, true)
+              .addRaw(`Logs older than ${process.env.MAX_AGE_DAYS} days (created before ${iso(cutoff)}): ${verb} logs of ${counts.logs} runs. Artifacts older than ${process.env.ARTIFACT_MAX_AGE_DAYS} days (${process.env.MAX_AGE_DAYS} for release runs): ${verb} ${counts.artifacts}. ${counts.logsGone} runs had no logs left, ${counts.skipped} were still running, ${counts.failed} failed.${rateLimited ? ' Stopped early: rate limited.' : ''}${capped}`, true)
               .write();
 
   caches:

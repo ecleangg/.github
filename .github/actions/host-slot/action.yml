@@ -1,0 +1,71 @@
+name: Host slot
+description: >-
+  Takes one of N slots of a class (default `heavy`) on the self-hosted runner's host, waiting in a
+  queue when all are taken, so only N heavy jobs (Rust builds, Playwright, image builds) run at
+  once on a host that has more runners than it has CPU for. Light jobs never call it and stay fully
+  parallel. The slot is a file lock under CI_LOCAL_CACHE/slots, held by a small background process
+  that ends with the job (the runner kills it) or at `release`; a crashed job frees it at once.
+  Elsewhere (no CI_LOCAL_CACHE, no flock) it does nothing. See docs/ci-standard.md.
+inputs:
+  class:
+    description: "Slot class; classes are counted separately"
+    required: false
+    default: heavy
+  slots-linux:
+    description: "Slots on a Linux host; pass vars.CI_HEAVY_SLOTS_LINUX. Empty: 3. 0: no limit"
+    required: false
+    default: ""
+  slots-windows:
+    description: "Slots on a Windows host; pass vars.CI_HEAVY_SLOTS_WINDOWS. Empty: 2. 0: no limit"
+    required: false
+    default: ""
+  wait-minutes:
+    description: "How long to queue; 0 tries once"
+    required: false
+    default: "90"
+  on-timeout:
+    description: "proceed (warn and run without a slot) or fail"
+    required: false
+    default: proceed
+  hold-minutes:
+    description: "Longest the slot is held; frees it if the job's cleanup never kills the holder"
+    required: false
+    default: "240"
+  directory:
+    description: "Where the slot locks live; empty: CI_LOCAL_CACHE/slots"
+    required: false
+    default: ""
+outputs:
+  acquired:
+    description: "true when a slot is held"
+    value: ${{ steps.linux.outputs.acquired || steps.windows.outputs.acquired || 'false' }}
+  slot:
+    description: "Number of the slot held"
+    value: ${{ steps.linux.outputs.slot || steps.windows.outputs.slot }}
+runs:
+  using: composite
+  steps:
+    - name: Wait for a slot
+      id: linux
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        SLOT_CLASS: ${{ inputs.class }}
+        SLOT_COUNT: ${{ inputs.slots-linux }}
+        SLOT_WAIT: ${{ inputs.wait-minutes }}
+        SLOT_ON_TIMEOUT: ${{ inputs.on-timeout }}
+        SLOT_HOLD: ${{ inputs.hold-minutes }}
+        SLOT_DIR: ${{ inputs.directory }}
+      run: bash "$GITHUB_ACTION_PATH/acquire.sh"
+    - name: Wait for a slot
+      id: windows
+      if: runner.os == 'Windows'
+      shell: powershell
+      env:
+        SLOT_CLASS: ${{ inputs.class }}
+        SLOT_COUNT: ${{ inputs.slots-windows }}
+        SLOT_WAIT: ${{ inputs.wait-minutes }}
+        SLOT_ON_TIMEOUT: ${{ inputs.on-timeout }}
+        SLOT_HOLD: ${{ inputs.hold-minutes }}
+        SLOT_DIR: ${{ inputs.directory }}
+      run: '& "$env:GITHUB_ACTION_PATH\acquire.ps1"'

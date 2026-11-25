@@ -119,6 +119,10 @@ on:
         description: "Skip the checks when the same job already passed on the same git tree"
         type: boolean
         default: true
+      heavy-slots:
+        description: "Queue for a host slot before the heavy steps, so a runner host does not run more than CI_HEAVY_SLOTS_* of these jobs at once (actions/host-slot)"
+        type: boolean
+        default: true
       verify-timeout-minutes:
         type: number
         default: 30
@@ -232,6 +236,14 @@ jobs:
         env:
           INSTALL: ${{ inputs.install }}
         run: bash -euo pipefail -c "$INSTALL"
+      # Queues for one of the host's heavy slots (variables CI_HEAVY_SLOTS_LINUX / _WINDOWS, default 3 / 2),
+      # so a host runs only that many browser (E2E) verify jobs at once. See actions/host-slot.
+      - name: Heavy-job slot
+        if: steps.run.outputs.code == 'true' && inputs.playwright-browsers != '' && inputs.heavy-slots
+        uses: $/.github/actions/host-slot
+        with:
+          slots-linux: ${{ vars.CI_HEAVY_SLOTS_LINUX }}
+          slots-windows: ${{ vars.CI_HEAVY_SLOTS_WINDOWS }}
       - name: Install Playwright browsers
         if: steps.run.outputs.code == 'true' && inputs.playwright-browsers != ''
         env:

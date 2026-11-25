@@ -1,0 +1,36 @@
+name: Host slot release
+description: >-
+  Gives the slot taken by host-slot back before the job ends (the job's end frees it anyway), so
+  later jobs need not wait for this job's cleanup steps. See docs/ci-standard.md.
+inputs:
+  class:
+    description: "Slot class given to host-slot"
+    required: false
+    default: heavy
+runs:
+  using: composite
+  steps:
+    - name: Release the slot
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        SLOT_CLASS: ${{ inputs.class }}
+      run: |
+        state="${RUNNER_TEMP:-/tmp}/host-slot/$SLOT_CLASS"
+        [ -d "$state" ] || exit 0
+        touch "$state/release"
+        # The holder removes `ready` when it lets go.
+        for _ in $(seq 20); do [ -e "$state/ready" ] || exit 0; sleep 1; done
+        echo "::warning::The slot holder did not stop within 20 s; the job's end frees the slot."
+    - name: Release the slot
+      if: runner.os == 'Windows'
+      shell: powershell
+      env:
+        SLOT_CLASS: ${{ inputs.class }}
+      run: |
+        $dir = Join-Path (Join-Path $env:RUNNER_TEMP 'host-slot') $env:SLOT_CLASS
+        if (-not (Test-Path $dir)) { exit 0 }
+        New-Item -ItemType File -Force -Path (Join-Path $dir 'release') | Out-Null
+        # The holder removes `ready` when it lets go.
+        for ($i = 0; $i -lt 20 -and (Test-Path (Join-Path $dir 'ready')); $i++) { Start-Sleep -Seconds 1 }
+        if (Test-Path (Join-Path $dir 'ready')) { Write-Host "::warning::The slot holder did not stop within 20 s; the job's end frees the slot." }
