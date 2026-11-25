@@ -51,11 +51,19 @@ runs:
           -e POSTGRES_DB="$PGDATABASE" -e POSTGRES_USER="$PGUSER" -e POSTGRES_PASSWORD="$PGPASSWORD" \
           "$IMAGE" -c fsync=off -c synchronous_commit=off -c full_page_writes=off > /dev/null
         port="$(docker port "$name" 5432/tcp | head -n 1 | sed 's/.*://')"
+        # TCP only: the image's temporary init server listens on the unix socket
+        # alone and then restarts. Require two consecutive successes.
+        ok=0
         for _ in $(seq 1 60); do
-          if docker exec "$name" pg_isready -q -U "$PGUSER" -d "$PGDATABASE"; then break; fi
+          if docker exec "$name" pg_isready -q -h 127.0.0.1 -U "$PGUSER" -d "$PGDATABASE"; then
+            ok=$((ok + 1))
+            if [ "$ok" -ge 2 ]; then break; fi
+          else
+            ok=0
+          fi
           sleep 1
         done
-        docker exec "$name" pg_isready -q -U "$PGUSER" -d "$PGDATABASE"
+        docker exec "$name" pg_isready -q -h 127.0.0.1 -U "$PGUSER" -d "$PGDATABASE"
         {
           echo "url=postgres://$PGUSER:$PGPASSWORD@127.0.0.1:$port/$PGDATABASE"
           echo "port=$port"
