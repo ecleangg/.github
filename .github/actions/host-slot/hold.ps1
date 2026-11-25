@@ -1,19 +1,24 @@
 # Background holder for acquire.ps1 (see hold.sh): an exclusive handle on the slot file is the lock,
 # and Windows closes it when this process ends, however it ends.
-param([string]$Dir, [int]$Slots, [string]$State, [int]$WaitMinutes, [int]$HoldMinutes)
+param([string]$Dir, [int]$Slots, [string]$State, [int]$WaitMinutes, [int]$HoldMinutes, [int]$WatchPid = 0)
 $ErrorActionPreference = 'Stop'
 $start = Get-Date
-while ($true) {
+# True while the job's Runner.Worker.exe lives (always true when it was not found).
+function Test-Job { $WatchPid -eq 0 -or [bool](Get-Process -Id $WatchPid -ErrorAction SilentlyContinue) }
+try {
+while (Test-Job) {
   for ($i = 1; $i -le $Slots; $i++) {
     try {
       $lock = [IO.File]::Open((Join-Path $Dir "$i.lock"), 'OpenOrCreate', 'ReadWrite', 'None')
-    } catch [IO.IOException] {
-      continue
+    } catch {
+      # A sharing violation (held by another holder) arrives wrapped by PowerShell; anything else is a real error.
+      if ($_.Exception -is [IO.IOException] -or $_.Exception.InnerException -is [IO.IOException]) { continue }
+      throw
     }
     [IO.File]::WriteAllText((Join-Path $State 'ready.tmp'), "$i")
     Move-Item -Force (Join-Path $State 'ready.tmp') (Join-Path $State 'ready')
     $end = (Get-Date).AddMinutes($HoldMinutes)
-    while (-not (Test-Path (Join-Path $State 'release')) -and (Get-Date) -lt $end) { Start-Sleep -Seconds 1 }
+    while (-not (Test-Path (Join-Path $State 'release')) -and (Get-Date) -lt $end -and (Test-Job)) { Start-Sleep -Seconds 1 }
     # `release` waits for `ready` to go, so the slot is free when it returns.
     Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $State 'ready'), (Join-Path $State 'release')
     $lock.Dispose()
@@ -24,4 +29,8 @@ while ($true) {
     exit 0
   }
   Start-Sleep -Seconds (Get-Random -Minimum 2 -Maximum 5)
+}
+} catch {
+  $_ | Out-String | Set-Content (Join-Path $State 'holder.err')
+  exit 1
 }

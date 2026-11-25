@@ -20,17 +20,26 @@ $state = Join-Path (Join-Path $env:RUNNER_TEMP 'host-slot') $class
 New-Item -ItemType Directory -Force -Path $dir, $state | Out-Null
 foreach ($f in 'ready', 'ready.tmp', 'release') { Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $state $f) }
 
-$proc = Start-Process -FilePath powershell -WindowStyle Hidden -PassThru `
-  -RedirectStandardOutput (Join-Path $state 'holder.log') -RedirectStandardError (Join-Path $state 'holder.err') `
-  -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $env:GITHUB_ACTION_PATH 'hold.ps1'),
-    '-Dir', $dir, '-Slots', $slots, '-State', $state, '-WaitMinutes', $wait, '-HoldMinutes', $hold
+# The runner ends a step's child processes with the step, so the holder is started through WMI, outside
+# the step's process tree, and ends with the job's Runner.Worker.exe instead (or at release or the hold limit).
+$worker = 0
+$walk = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
+while ($walk) {
+  if ($walk.Name -eq 'Runner.Worker.exe') { $worker = $walk.ProcessId; break }
+  $walk = Get-CimInstance Win32_Process -Filter "ProcessId=$($walk.ParentProcessId)" -ErrorAction SilentlyContinue
+}
+$script = Join-Path $env:GITHUB_ACTION_PATH 'hold.ps1'
+$command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$script`" -Dir `"$dir`" -Slots $slots -State `"$state`" -WaitMinutes $wait -HoldMinutes $hold -WatchPid $worker"
+$created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $command }
+if ($created.ReturnValue -ne 0) { Out-None "::warning::Could not start the slot holder (WMI $($created.ReturnValue)): running without a slot." }
+$holder = $created.ProcessId
 
 Write-Host "Waiting for one of $slots '$class' slots on $env:COMPUTERNAME."
 $ready = Join-Path $state 'ready'
 $watch = [Diagnostics.Stopwatch]::StartNew()
 $last = 0
 while (-not (Test-Path $ready)) {
-  if ($proc.HasExited -and -not (Test-Path $ready)) {
+  if (-not (Get-Process -Id $holder -ErrorAction SilentlyContinue) -and -not (Test-Path $ready)) {
     Write-Host '::warning::The slot holder died: running without a slot.'
     Get-Content (Join-Path $state 'holder.err') -ErrorAction SilentlyContinue | Write-Host
     Out-None 'No slot.'
