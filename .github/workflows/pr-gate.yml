@@ -23,9 +23,9 @@ on:
         type: string
         default: ""
       runs-on:
-        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        description: 'Runner label, or a JSON array of labels. Empty: the self-hosted Linux pool; with the variable CI_RUNNER_POOLS on, also its `light` label'
         type: string
-        default: '["self-hosted","Linux","X64"]'
+        default: ''
     outputs:
       run-full:
         description: "true when the gate ran, i.e. the event is not a draft pull request"
@@ -46,7 +46,7 @@ jobs:
   gate:
     name: Gate
     if: ${{ !github.event.pull_request.draft }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 5
     permissions:
       contents: read

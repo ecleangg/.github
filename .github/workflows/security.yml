@@ -31,9 +31,9 @@ on:
         type: boolean
         default: false
       runs-on:
-        description: 'Runner label, or a JSON array of labels, for every job; defaults to the self-hosted Linux pool (x64: the security tools do not run on arm)'
+        description: 'Runner label, or a JSON array of labels. Empty: the self-hosted Linux pool; with the variable CI_RUNNER_POOLS on, also its `light` label, for every job'
         type: string
-        default: '["self-hosted","Linux","X64"]'
+        default: ''
       path:
         description: "Directory to scan, relative to the repository root (osv, opengrep, trivy-config, workflows)"
         type: string
@@ -82,7 +82,7 @@ jobs:
   workflows:
     name: Workflows (actionlint, zizmor)
     if: ${{ inputs.workflows }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -232,7 +232,7 @@ jobs:
   secrets:
     name: Secrets (TruffleHog)
     if: ${{ inputs.secrets }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 14
     permissions:
       contents: read
@@ -333,7 +333,7 @@ jobs:
     name: Dependencies (OSV-Scanner)
     # Drafts run only the day-one checks (workflows, secrets); this waits for ready for review.
     if: ${{ inputs.osv && !github.event.pull_request.draft }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 14
     permissions:
       contents: read
@@ -495,7 +495,7 @@ jobs:
     name: SAST (Opengrep, TypeScript and JavaScript)
     # Drafts run only the day-one checks (workflows, secrets); this waits for ready for review.
     if: ${{ inputs.opengrep && !github.event.pull_request.draft }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 14
     permissions:
       contents: read
@@ -669,7 +669,7 @@ jobs:
     name: Dockerfiles (Trivy misconfiguration)
     # Drafts run only the day-one checks (workflows, secrets); this waits for ready for review.
     if: ${{ inputs.trivy-config && !github.event.pull_request.draft }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 14
     permissions:
       contents: read
