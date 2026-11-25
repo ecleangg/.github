@@ -23,9 +23,9 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        description: 'Runner label, or a JSON array of labels. Empty: the self-hosted Linux pool; with the variable CI_RUNNER_POOLS on, also its `heavy` label for Playwright runs, else `light`'
         type: string
-        default: '["self-hosted","Linux","X64"]'
+        default: ''
       working-directory:
         description: "Directory of the Bun project, relative to the repository root"
         type: string
@@ -136,7 +136,7 @@ jobs:
   verify:
     name: Verify
     if: ${{ !github.event.pull_request.draft }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', inputs.playwright-browsers != '' && 'heavy' || 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: ${{ inputs.verify-timeout-minutes }}
     permissions:
       contents: read
@@ -311,7 +311,7 @@ jobs:
   build:
     name: Build
     if: ${{ !github.event.pull_request.draft && inputs.build != '' }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: ${{ inputs.build-timeout-minutes }}
     permissions:
       contents: read

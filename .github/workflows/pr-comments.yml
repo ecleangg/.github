@@ -30,9 +30,9 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        description: 'Runner label, or a JSON array of labels. Empty: the self-hosted Linux pool; with the variable CI_RUNNER_POOLS on, also its `light` label'
         type: string
-        default: '["self-hosted","Linux","X64"]'
+        default: ''
 
 permissions: {}
 
@@ -40,7 +40,7 @@ jobs:
   find:
     name: Find comments
     if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.pull_requests[0].number != '' }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -67,7 +67,7 @@ jobs:
     name: Comment ${{ matrix.artifact.header }}
     needs: find
     if: ${{ needs.find.outputs.artifacts != '[]' && needs.find.outputs.artifacts != '' }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 10
     permissions:
       actions: read

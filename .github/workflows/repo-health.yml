@@ -21,9 +21,9 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner label, or a JSON array of labels; defaults to the self-hosted Linux pool'
+        description: 'Runner label, or a JSON array of labels. Empty: the self-hosted Linux pool; with the variable CI_RUNNER_POOLS on, also its `light` label'
         type: string
-        default: '["self-hosted","Linux","X64"]'
+        default: ''
       dry-run:
         description: "Only list what runs and caches would delete"
         type: boolean
@@ -99,7 +99,7 @@ jobs:
   files:
     name: Standard files
     if: ${{ inputs.files }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -156,7 +156,7 @@ jobs:
   stale:
     name: Stale
     if: ${{ inputs.stale }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -198,7 +198,7 @@ jobs:
   runs:
     name: Run logs and artifacts
     if: ${{ inputs.runs }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -297,7 +297,7 @@ jobs:
   caches:
     name: Actions caches
     if: ${{ inputs.caches }}
-    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on || (vars.CI_RUNNER_POOLS == 'on' && fromJSON(format('["self-hosted","Linux","X64","{0}"]', 'light')) || fromJSON('["self-hosted","Linux","X64"]')) }}
     timeout-minutes: 15
     permissions:
       contents: read

@@ -13,7 +13,9 @@ input: a runner label (`ubuntu-24.04`) or a JSON array of labels.
 
 | Pool | Labels | Use |
 | --- | --- | --- |
-| Linux | `["self-hosted","Linux","X64"]` (default) | Everything. Four ephemeral just-in-time lanes on one x64 host |
+| Linux | `["self-hosted","Linux","X64"]` (default) | Everything. Five ephemeral just-in-time runners on one x64 host (prd-ams-ci-01) |
+| Linux heavy | `["self-hosted","Linux","X64","heavy"]` | Builds, tests, E2E, image builds: 3 runners. Opt-in, see [Runner pools](#runner-pools) |
+| Linux light | `["self-hosted","Linux","X64","light"]` | Gates, lint, scans, hygiene, aggregators: 2 runners. Opt-in |
 | Windows | `["self-hosted","Windows","X64"]` | Windows-only work that needs no secrets |
 | GitHub-hosted | `ubuntu-24.04`, `ubuntu-slim` | Public repos: the self-hosted groups do not serve them. This repository's own self-test runs on `ubuntu-slim` |
 
@@ -24,6 +26,36 @@ Installed on the runners: Node 26 LTS, Bun, Go (`GOTOOLCHAIN=auto`), rustup with
 ShellCheck, a C toolchain, CMake, Clang, ansible-lint, Docker with buildx, Playwright system libraries.
 The setup actions (`setup-bun`, `setup-go`, Rust toolchain installs) run only on GitHub-hosted runners
 (`runner.environment == 'github-hosted'`); on the self-hosted lanes the tool is already there.
+
+### Runner pools
+
+prd-ams-ci-01 splits its five runners into 3 `heavy` and 2 `light` (playbooks `github_runner_pools`), so
+a gate or a lint never waits behind a build. Every runner also keeps `self-hosted`, `Linux` and `X64`, so
+workflows asking only for those still run on any of them. The shared workflows pick a pool per job when
+`runs-on` is left empty (its default):
+
+| Pool | Jobs |
+| --- | --- |
+| `heavy` | `rust-ci`, `docker-build`, `verify`; `bun-ci` `verify` when `playwright-browsers` is set; `go-ci` when `postgres` is set |
+| `light` | `pr-gate`, `pr-hygiene`, `pr-comments`, `repo-health`, `stale`, `package-prune`, `trivy-image-scheduled`, every `security` job; `bun-ci` (`verify` without Playwright, and `build`) and `go-ci` without `postgres` |
+
+The routing is **off** until the variable `CI_RUNNER_POOLS` is `on` (repository or org variable); off, every
+job asks for `["self-hosted","Linux","X64"]` as before. A caller's own `runs-on` always wins: a JSON array,
+a hosted label, or the Windows pool is used as given. Jobs defined in a caller's own workflow (a `changes`
+job, a summary or aggregator job) are not routed by this: give them `runs-on: [self-hosted, Linux, X64, light]`
+once the pools exist. The heavy-job slots below stay as they are (3 on Linux, now equal to the heavy pool).
+
+Cutover order (a job asking for a label no runner has queues until it times out):
+
+1. Merge this change; consumers keep their pinned SHAs and see no difference.
+2. Apply the playbooks change (ecleangg/playbooks, "Runner pools") and restart each runner when idle, until
+   `gh api orgs/ecleangg/actions/runners` shows `heavy` on 3 and `light` on 2.
+3. Repin consumers to the new SHA of these workflows (still no change while the variable is unset).
+4. Set `CI_RUNNER_POOLS=on` for one repository, watch a run, then for the org. Set it to anything else, or
+   delete it, to go back at once; no repin needed.
+5. Later, once all callers are repinned: change the defaults to `["self-hosted","heavy"]` and
+   `["self-hosted","light"]`, then drop the base labels from the runners (playbooks
+   `github_runner_pool_keep_base_labels: false`).
 
 ## Heavy-job slots
 
@@ -168,7 +200,8 @@ Release jobs set `cache-mode: none`: a release never restores a cache another jo
 ### Reusable workflows
 
 `ecleangg/.github/.github/workflows/<file>@<sha> # <ref>`. Every workflow has the input `runs-on`
-(default `["self-hosted","Linux","X64"]`); it is not repeated in the tables below. `outputs.result` of
+(default empty: `["self-hosted","Linux","X64"]`, plus the pool label when `CI_RUNNER_POOLS` is `on`, see
+[Runner pools](#runner-pools)); it is not repeated in the tables below. `outputs.result` of
 `bun-ci`, `rust-ci`, `go-ci` and `verify` is `success` or `failure`.
 
 #### bun-ci
