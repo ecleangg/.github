@@ -29,7 +29,7 @@ const ghHeaders = (token) => ({ Authorization: `Bearer ${token}`, Accept: "appli
 
 async function ghJson(token, url) {
   const res = await http(url.startsWith("http") ? url : `${API}${url}`, { headers: ghHeaders(token) });
-  if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`GET ${url}: HTTP ${res.status}`), { status: res.status });
   return res.json();
 }
 
@@ -165,6 +165,11 @@ async function main(env = process.env) {
     for (const { type, name } of packages) {
       let versions;
       try { versions = await ghPaginate(token, `/orgs/${org}/packages/${type}/${name}/versions`); } catch (e) {
+        if (e.status === 404) { // package absent (e.g. images now publish elsewhere): nothing to prune
+          console.log(`::notice title=Package prune::package ${name} not found, nothing to prune`);
+          results.push({ type, name, versions: 0, keep: [], delete: [], deferred: [], builds: [], warnings: [], errors: [], absent: true });
+          continue;
+        }
         results.push(aborted(type, name, 0, `cannot list versions: ${e.message}`));
         continue;
       }

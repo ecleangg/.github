@@ -168,6 +168,7 @@ function renderSummary(results, { org, dryRun }) {
   out.push(`## Package prune${dryRun ? " (dry run: nothing is deleted)" : ""}`, "");
   for (const r of results) {
     out.push(`### ${r.type} \`${r.name}\``, "");
+    if (r.absent) { out.push(`package ${r.name} not found, nothing to prune.`, ""); continue; }
     out.push(`${r.versions} versions: keep ${r.keep.length}, delete ${r.delete.length}, deferred ${r.deferred.length}.`, "");
     for (const e of r.errors) out.push(`- ERROR: ${e}`);
     for (const w of r.warnings) out.push(`- warning: ${w}`);

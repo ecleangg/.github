@@ -296,3 +296,9 @@ test("scanNpmConsumers ignores a scanned repo's own tests/fixtures", () => {
   const consumers = scanNpmConsumers([{ dir: root, label: "repo" }], "@ecleangg/ui");
   assert.deepEqual(consumers.map((d) => d.source), ["repo:package.json"]);
 });
+
+test("summary: an absent package is noted and not an error", () => {
+  const out = renderSummary([{ type: "container", name: "gone", versions: 0, keep: [], delete: [], deferred: [], builds: [], warnings: [], errors: [], absent: true }], { org: "o", dryRun: false });
+  assert.match(out, /package gone not found, nothing to prune/);
+  assert.doesNotMatch(out, /ERROR|Aborted/);
+});
