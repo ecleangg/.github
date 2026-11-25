@@ -25,6 +25,30 @@ ShellCheck, a C toolchain, CMake, Clang, ansible-lint, Docker with buildx, Playw
 The setup actions (`setup-bun`, `setup-go`, Rust toolchain installs) run only on GitHub-hosted runners
 (`runner.environment == 'github-hosted'`); on the self-hosted lanes the tool is already there.
 
+## Heavy-job slots
+
+A runner takes one job, and a host has more runners than CPU for heavy jobs: prd-ams-ci-01 (Linux) is a
+10 vCPU / 32 GiB VM with about 5 runners, prd-ams-ci-02 (Windows) a 12 vCPU / 40 GiB VM with 4 lanes.
+Rust build and test (`rust-ci`), browser E2E (`bun-ci` with `playwright-browsers`) and image builds
+(`docker-build`) therefore call [`actions/host-slot`](#actionshost-slot) before their heavy steps: a host
+runs at most N of them at once and the rest queue, holding a runner but no CPU. Lint, format, secret scans,
+actionlint and every other job stay fully parallel. Set `heavy-slots: false` on a workflow to opt out.
+
+The counts are the variables `CI_HEAVY_SLOTS_LINUX` (default 3) and `CI_HEAVY_SLOTS_WINDOWS` (default 2),
+set per repository or for the org; `0` turns the limit off. A concurrency group does not do this: it holds
+one running and one pending job and cancels the rest (`queue: max` only serializes, `concurrency-group` in
+`rust-ci` uses it for that).
+
+## Artifacts
+
+The org is on the free plan: 500 MB of Actions storage, counted in GB-hours over the month (372 GB-hours
+for November). When it is used up, every `upload-artifact` fails with `Artifact storage quota has been
+hit` until the month turns. Shared workflows keep uploads small and short-lived: PR comment bodies 1 day,
+Opengrep reports 1 day, SBOMs 3 days (30 with a release tag), coverage baselines 14 days. Anything else a
+repo uploads needs `retention-days` of 1 to 3 (longer only for release artifacts), no build output or
+caches, and `if: failure()` for debug reports. `repo-health` deletes artifacts of non-release runs after
+3 days when it runs daily.
+
 ## The `verify` contract
 
 Every repo has one command named `verify` that runs lint, the format check, the type check and the
@@ -329,6 +353,7 @@ Permissions: `contents: read`.
 | `packages-secret` | `false` | Pass the workflow token as the BuildKit secret `github_packages_token` |
 | `forgejo-npm` | `false` | Pass a read-only Forgejo token from OpenBao (`kv/ci/npm-read/forgejo-registry`, role `ci-npm-read`) as the BuildKit secret `forgejo_packages_token`, to install `@ecleangg` packages from git.eclean.gg. The caller's job needs `id-token: write` (the job asks for it, so every caller must grant it when it re-pins) |
 | `scan` | `true` | Scan the built image (HIGH and CRITICAL fail) |
+| `heavy-slots` | `true` | Queue for a [heavy-job slot](#heavy-job-slots) before the build |
 | `timeout-minutes` | `45` | Job limit |
 
 ```yaml
@@ -485,7 +510,7 @@ It opens no issue. Call it from a weekly `schedule` and `workflow_dispatch`.
 | --- | --- | --- |
 | `files` | `files` | Job-summary table of standard files in the repo, inherited from the org `.github` repo, or missing (never fails) |
 | `stale` | `stale` | `actions/stale`: warning comment, then closes; drafts included |
-| `runs` | `runs` | Deletes logs (run metadata stays) and artifacts of runs older than `max-age-days` |
+| `runs` | `runs` | Deletes logs (run metadata stays) of runs older than `max-age-days`, and artifacts: `artifact-max-age-days` for non-release runs, `max-age-days` for release runs |
 | `caches` | `caches` | Deletes Actions caches not accessed for `cache-max-age-days` |
 
 Job permissions: `contents: read` everywhere, `issues: write`, `pull-requests: write` and `id-token: write`
@@ -505,7 +530,9 @@ are deleted with the workflow token.
 | `days-before-stale` | `90` | Inactivity before the warning |
 | `days-before-close` | `14` | Days after the warning before it is closed |
 | `exempt-labels` | `pinned,security,keep` | Never marked stale |
-| `max-age-days` | `7` | Age after which run logs and artifacts are deleted |
+| `max-age-days` | `7` | Age after which run logs, and the artifacts of release runs, are deleted |
+| `artifact-max-age-days` | `3` | Age after which artifacts of non-release runs are deleted. Call the workflow daily so this holds |
+| `release-ref-pattern` | version-like name | Extended regex on the run's branch or tag name (`v1.2.3`, `desktop-v1.2.3`): matching runs are release runs |
 | `lookback-days` | `14` | Runs visited: created up to this many days before the cutoff (`0`: all). Keeps a weekly run from re-requesting logs already deleted |
 | `max-deletions` | `1000` | Cap on log and artifact deletions per run (API rate limits); the next run continues |
 | `cache-max-age-days` | `3` | Days without access after which a cache is deleted |
@@ -707,6 +734,26 @@ Permissions: `contents: read`.
 - if: fromJSON(steps.changed.outputs.matches).code
   run: ci-scope --ext sh -- shellcheck
 ```
+
+#### actions/host-slot
+
+Queues for one of N slots of a class (default `heavy`) on the runner's host. The slots are file locks
+under `$CI_LOCAL_CACHE/slots/<class>` (the one directory every runner of a host can write), held by a
+small background process that the runner kills at the end of the job, so a crashed or cancelled job frees
+its slot. Linux uses `flock`, Windows an exclusive file handle. Without `CI_LOCAL_CACHE` or `flock` it does
+nothing, so it is safe on GitHub-hosted runners. Waiting is not FIFO (a waiter retries every 2 to 4 s).
+`actions/host-slot/release` hands the slot back before the job's last steps.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `class` | `heavy` | Slot class; each is counted separately |
+| `slots-linux`, `slots-windows` | `3`, `2` | Slots per host; pass `vars.CI_HEAVY_SLOTS_LINUX` and `vars.CI_HEAVY_SLOTS_WINDOWS`; `0` is no limit |
+| `wait-minutes` | `90` | Queue time; `0` tries once |
+| `on-timeout` | `proceed` | `proceed` warns and runs without a slot; `fail` fails the step |
+| `hold-minutes` | `240` | Longest a slot is held if the job's cleanup never kills the holder |
+| `directory` | `$CI_LOCAL_CACHE/slots` | Where the locks live |
+
+Outputs: `acquired` (`true` or `false`), `slot`. The wait counts against the job's `timeout-minutes`.
 
 #### actions/local-cache
 

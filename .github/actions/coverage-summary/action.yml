@@ -142,6 +142,6 @@ runs:
       with:
         name: ${{ inputs.baseline-artifact || format('coverage-{0}', inputs.name) }}
         path: ${{ runner.temp }}/coverage-out/${{ inputs.name }}/coverage-${{ inputs.name }}.json
-        retention-days: 30
+        retention-days: 14
         overwrite: true
         if-no-files-found: ignore

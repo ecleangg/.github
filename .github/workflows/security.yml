@@ -616,7 +616,7 @@ jobs:
           path: |
             ${{ runner.temp }}/opengrep-head.json
             ${{ runner.temp }}/opengrep-head.sarif
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: ignore
 
       - name: Summarize and gate

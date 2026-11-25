@@ -51,6 +51,10 @@ on:
         description: "Scan the built image with actions/trivy-image (HIGH and CRITICAL fail)"
         type: boolean
         default: true
+      heavy-slots:
+        description: "Queue for a host slot before the heavy steps, so a runner host does not run more than CI_HEAVY_SLOTS_* of these jobs at once (actions/host-slot)"
+        type: boolean
+        default: true
       timeout-minutes:
         type: number
         default: 45
@@ -117,6 +121,14 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: ${{ steps.cache.outputs.driver }}
+      # Queues for one of the host's heavy slots (variables CI_HEAVY_SLOTS_LINUX / _WINDOWS, default 3 / 2),
+      # so a host runs only that many image builds at once. See actions/host-slot.
+      - name: Heavy-job slot
+        if: fromJSON(steps.changes.outputs.matches).image && inputs.heavy-slots
+        uses: $/.github/actions/host-slot
+        with:
+          slots-linux: ${{ vars.CI_HEAVY_SLOTS_LINUX }}
+          slots-windows: ${{ vars.CI_HEAVY_SLOTS_WINDOWS }}
       - name: Build
         if: fromJSON(steps.changes.outputs.matches).image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

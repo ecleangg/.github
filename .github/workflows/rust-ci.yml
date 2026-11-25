@@ -125,6 +125,10 @@ on:
         description: "Skip the checks when this job variant already passed on the same git tree"
         type: boolean
         default: true
+      heavy-slots:
+        description: "Queue for a host slot before the heavy steps, so a runner host does not run more than CI_HEAVY_SLOTS_* of these jobs at once (actions/host-slot)"
+        type: boolean
+        default: true
       timeout-minutes:
         type: number
         default: 45
@@ -221,6 +225,14 @@ jobs:
             echo "Members: ${packages:-none}" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
+      # Queues for one of the host's heavy slots (variables CI_HEAVY_SLOTS_LINUX / _WINDOWS, default 3 / 2),
+      # so a host runs only that many build and test jobs at once. See actions/host-slot.
+      - name: Heavy-job slot
+        if: steps.run.outputs.code == 'true' && inputs.heavy-slots
+        uses: $/.github/actions/host-slot
+        with:
+          slots-linux: ${{ vars.CI_HEAVY_SLOTS_LINUX }}
+          slots-windows: ${{ vars.CI_HEAVY_SLOTS_WINDOWS }}
       - name: Toolchain
         if: steps.run.outputs.code == 'true'
         run: |

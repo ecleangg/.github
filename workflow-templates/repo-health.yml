@@ -2,7 +2,7 @@ name: Repo health
 
 on:
   schedule:
-    - cron: "41 5 * * 1" # Weekly, Monday 05:41 UTC
+    - cron: "41 5 * * *" # Daily 05:41 UTC; artifacts older than 3 days go (the quota counts them by the hour)
   workflow_dispatch:
 
 permissions:

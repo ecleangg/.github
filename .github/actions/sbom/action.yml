@@ -73,7 +73,7 @@ runs:
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.output-file }}
-        retention-days: 30
+        retention-days: ${{ inputs.release-tag != '' && 30 || 3 }}
         overwrite: true
 
     - name: Attach the SBOM to the release
