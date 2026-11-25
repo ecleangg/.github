@@ -57,7 +57,7 @@ jobs:
             kv/data/ci/${{ github.event.repository.name }}/forgejo-registry token | REGISTRY_TOKEN
 
       - name: Scan the image
-        uses: ecleangg/.github/.github/actions/trivy-image@bf606a1efb77067403a073c6522ad192b3b5bd81 # main
+        uses: ecleangg/.github/.github/actions/trivy-image@f59a1b7b9fd06a0216f6787eb772168c791cf2a8 # main
         with:
           image: ${{ inputs.image }}
           ignore-file: ${{ inputs.ignore-file }}
