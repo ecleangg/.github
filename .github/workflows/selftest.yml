@@ -83,6 +83,14 @@ jobs:
           slots-windows: "1"
           wait-minutes: "0"
           directory: ${{ runner.temp }}/slots
+      - name: DIAG
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Get-ChildItem "$env:RUNNER_TEMP\host-slot\selftest" | Format-Table Name, Length
+          Get-Content "$env:RUNNER_TEMP\host-slot\selftest\holder.err" -ErrorAction SilentlyContinue
+          Get-Content "$env:RUNNER_TEMP\host-slot\selftest\holder.log" -ErrorAction SilentlyContinue
+          Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Select-Object ProcessId, CommandLine | Format-List
       - name: A second job finds it taken
         id: second
         uses: ./.github/actions/host-slot
