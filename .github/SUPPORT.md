@@ -12,7 +12,7 @@ Stuck on something? This page points you to the right place. Every inbox and cha
 - **Live chat:** available on [eclean.gg/contact](https://eclean.gg/contact) while the team is online.
 - **Help center:** [help.eclean.gg](https://help.eclean.gg) has guides and troubleshooting for every module.
 - **Community forum:** [community.eclean.gg](https://community.eclean.gg) is the place to ask questions, share feedback, and vote on ideas.
-- **Discord:** [discord.gg/eclean](https://discord.gg/eclean) for real-time chat with the community and the team.
+- **Discord:** [eclean.gg/discord](https://eclean.gg/discord) for real-time chat with the community and the team.
 - **Status:** [status.eclean.gg](https://status.eclean.gg) shows whether something is down.
 
 ### 📬 The right inbox
