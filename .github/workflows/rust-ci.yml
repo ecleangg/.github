@@ -17,6 +17,10 @@
 #   a re-run, a manual run), its checks are skipped (actions/test-results; `reuse-results`). The
 #   default branch still runs when it has coverage to report or no `target` entry for its key yet.
 # - `setup` runs after the toolchain and before format and lint (install dependencies, generate code).
+# - `prepare` runs right after the checkout, before anything reads the workspace (the affected
+#   members come from `cargo metadata`): for what the workspace needs to load at all, such as a
+#   sibling checkout its path dependencies point at. It gets the job's token as GH_TOKEN (read
+#   access to the calling repository, the job's `contents: read`) and not yet the `env` lines.
 # - `compose-file` starts a Docker Compose stack before the tests and removes it (`down -v`) at the
 #   end, under a project name unique to the run. Compose files with fixed container names or ports
 #   still collide between runs: set `concurrency-group` to serialize those runs.
@@ -47,6 +51,10 @@ on:
           code: * !*.md !docs/* !LICENSE* !.github/ISSUE_TEMPLATE/* !.github/*.md
       full-patterns:
         description: "Extra globs that make a pull request check everything"
+        type: string
+        default: ""
+      prepare:
+        description: "Multi-line script run right after the checkout, before the workspace is read, e.g. a sibling checkout its path dependencies need; GH_TOKEN holds the job's token"
         type: string
         default: ""
       setup:
@@ -159,6 +167,13 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+      - name: Prepare
+        if: inputs.prepare != ''
+        env:
+          CMD: ${{ inputs.prepare }}
+          # Read access to the calling repository alone (the job's `contents: read`).
+          GH_TOKEN: ${{ github.token }}
+        run: bash -euo pipefail -c "$CMD"
       - id: changes
         uses: $/.github/actions/changed-files
         with:

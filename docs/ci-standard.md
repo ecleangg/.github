@@ -266,6 +266,7 @@ must grant it). The coverage comment is posted by [`pr-comments`](#pr-comments).
 | `env` | empty | `NAME=value` lines (no secrets) |
 | `filters` | `code: * !*.md ...` | `actions/changed-files` filters |
 | `full-patterns` | empty | Extra globs that make a pull request check everything |
+| `prepare` | empty | Multi-line script right after the checkout, before the workspace is read (a sibling checkout path dependencies need); `GH_TOKEN` holds the job's token, the `env` lines are not set yet |
 | `setup` | empty | Multi-line script after the toolchain, before format and lint (`bun install --frozen-lockfile`, code generation) |
 | `tools` | empty | Comma-separated cargo tools for `taiki-e/install-action`, e.g. `cargo-nextest,cargo-deny` |
 | `postgres` | empty | Postgres image for the tests (`DATABASE_URL` is set for the test and extra steps) |
