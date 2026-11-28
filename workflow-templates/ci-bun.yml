@@ -30,7 +30,7 @@ jobs:
       build: bun run build
 
   # Keeps a release pull request open from Conventional Commits; merging it tags the version and
-  # creates a draft GitHub release (needs release-please-config.json and .release-please-manifest.json).
+  # creates the published GitHub release (needs release-please-config.json and .release-please-manifest.json).
   release:
     if: github.event_name == 'push'
     needs: ci
